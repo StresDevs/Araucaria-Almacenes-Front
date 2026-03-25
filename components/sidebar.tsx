@@ -15,6 +15,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname()
   const [inventarioOpen, setInventarioOpen] = useState(false)
   const [transferenciaOpen, setTransferenciaOpen] = useState(false)
+  const [reportesOpen, setReportesOpen] = useState(false)
 
   const navigation = [
     { name: 'Panel de Control', href: '/', icon: BarChart3 },
@@ -27,13 +28,20 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     { name: 'Entrega de Material', href: '/solicitudes', icon: FileText },
     { name: 'Devoluciones', href: '/devoluciones', icon: LogOut },
     { name: 'Préstamos', href: '/prestamos', icon: Package },
-    { name: 'Reportes', href: '/reportes', icon: BarChart3 },
     { name: 'Registro de Bajas', href: '/bajas', icon: Trash2 },
+  ]
+
+  const reportesSubmenu = [
+    { name: 'Reportes por obras', href: '/reportes/obras' },
+    { name: 'Reportes por Material', href: '/reportes/material' },
+    { name: 'Reportes por contratista', href: '/reportes/contratista' },
+    { name: 'Reporte de Consumo', href: '/reportes/consumo' },
   ]
 
   const inventarioSubmenu = [
     { name: 'Importación Nueva', href: '/inventario/importacion-nueva' },
     { name: 'Importación Antigua', href: '/inventario/importacion-antigua' },
+    { name: 'Compras Nacionales', href: '/inventario/compras-nacionales' },
   ]
 
   const transferenciaSubmenu = [
@@ -102,6 +110,43 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         {operaciones.map((item) => (
           <NavLink key={item.href} {...item} />
         ))}
+
+        {/* Reportes Dropdown */}
+        <div>
+          <button
+            onClick={() => setReportesOpen(!reportesOpen)}
+            className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm ${
+              reportesOpen ? 'bg-border/60 text-foreground' : 'text-foreground hover:bg-border/60'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1 text-left truncate">Reportes</span>
+            <ChevronDown
+              className={`w-4 h-4 flex-shrink-0 transition-transform ${reportesOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+          {reportesOpen && (
+            <div className="mt-0.5 ml-3 space-y-0.5 border-l-2 border-accent/40 pl-3">
+              {reportesSubmenu.map((submenu) => {
+                const isActive = pathname === submenu.href
+                return (
+                  <Link
+                    key={submenu.href}
+                    href={submenu.href}
+                    onClick={onClose}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                      isActive
+                        ? 'bg-accent text-white font-semibold'
+                        : 'text-foreground hover:bg-border/60'
+                    }`}
+                  >
+                    <span className="truncate">{submenu.name}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Inventario Dropdown */}
         <div>

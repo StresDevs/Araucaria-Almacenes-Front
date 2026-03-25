@@ -1,6 +1,6 @@
 'use client'
 
-import { X, CheckCircle2, AlertCircle, Warehouse, Package } from 'lucide-react'
+import { X, CheckCircle2, AlertCircle, Warehouse, Package, Search } from 'lucide-react'
 import { useState } from 'react'
 import { MOCK_ALMACENES_EXTERNOS } from '@/lib/constants'
 
@@ -13,8 +13,13 @@ interface CloseObraDrawerProps {
 
 type Step = 'review' | 'items-used' | 'distribution' | 'confirm' | 'done'
 
-interface MaterialDistribution {
-  [almacenId: string]: boolean
+interface ItemDistribution {
+  [itemId: string]: {
+    totalCantidad: number
+    almacenes: {
+      [almacenId: string]: number
+    }
+  }
 }
 
 interface UsedItem {
@@ -22,18 +27,21 @@ interface UsedItem {
   codigo: string
   descripcion: string
   cantidad: number
+  categoria: string
 }
 
 const MOCK_AVAILABLE_ITEMS: UsedItem[] = [
-  { id: '1', codigo: 'IND-001', descripcion: 'Casco de seguridad amarillo', cantidad: 25 },
-  { id: '2', codigo: 'IND-002', descripcion: 'Chaleco reflectivo naranja', cantidad: 30 },
-  { id: '3', codigo: 'IND-003', descripcion: 'Guantes de cuero', cantidad: 50 },
-  { id: '4', codigo: 'IND-004', descripcion: 'Botas de seguridad', cantidad: 20 },
-  { id: '5', codigo: 'MAT-001', descripcion: 'Cemento bolsa 50kg', cantidad: 100 },
-  { id: '6', codigo: 'MAT-002', descripcion: 'Arena m³', cantidad: 15 },
-  { id: '7', codigo: 'MAT-003', descripcion: 'Varilla 3/8', cantidad: 500 },
-  { id: '8', codigo: 'MAT-004', descripcion: 'Tubo PVC 4 pulgadas', cantidad: 80 },
+  { id: '1', codigo: 'IND-001', descripcion: 'Casco de seguridad amarillo', cantidad: 25, categoria: 'Seguridad' },
+  { id: '2', codigo: 'IND-002', descripcion: 'Chaleco reflectivo naranja', cantidad: 30, categoria: 'Seguridad' },
+  { id: '3', codigo: 'IND-003', descripcion: 'Guantes de cuero', cantidad: 50, categoria: 'Seguridad' },
+  { id: '4', codigo: 'IND-004', descripcion: 'Botas de seguridad', cantidad: 20, categoria: 'Seguridad' },
+  { id: '5', codigo: 'MAT-001', descripcion: 'Cemento bolsa 50kg', cantidad: 100, categoria: 'Materiales' },
+  { id: '6', codigo: 'MAT-002', descripcion: 'Arena m³', cantidad: 15, categoria: 'Materiales' },
+  { id: '7', codigo: 'MAT-003', descripcion: 'Varilla 3/8', cantidad: 500, categoria: 'Materiales' },
+  { id: '8', codigo: 'MAT-004', descripcion: 'Tubo PVC 4 pulgadas', cantidad: 80, categoria: 'Materiales' },
 ]
+
+const CATEGORIAS = ['Todas', ...new Set(MOCK_AVAILABLE_ITEMS.map(i => i.categoria))]
 
 export function CloseObraDrawer({
   isOpen,
@@ -43,22 +51,18 @@ export function CloseObraDrawer({
 }: CloseObraDrawerProps) {
   const [step, setStep] = useState<Step>('review')
   const [usedItems, setUsedItems] = useState<{ [itemId: string]: number }>({})
-  const [selectedAlmacenes, setSelectedAlmacenes] = useState<MaterialDistribution>(
-    MOCK_ALMACENES_EXTERNOS.reduce((acc, alm) => ({
-      ...acc,
-      [alm.id]: false,
-    }), {})
-  )
+  const [itemDistribution, setItemDistribution] = useState<ItemDistribution>({})
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedCategoria, setSelectedCategoria] = useState('Todas')
+  const [expandedItem, setExpandedItem] = useState<string | null>(null)
 
   const handleClose = () => {
     setStep('review')
     setUsedItems({})
-    setSelectedAlmacenes(
-      MOCK_ALMACENES_EXTERNOS.reduce((acc, alm) => ({
-        ...acc,
-        [alm.id]: false,
-      }), {})
-    )
+    setItemDistribution({})
+    setSearchTerm('')
+    setSelectedCategoria('Todas')
+    setExpandedItem(null)
     onClose()
   }
 
@@ -76,13 +80,6 @@ export function CloseObraDrawer({
     }, 1500)
   }
 
-  const toggleAlmacen = (almacenId: string) => {
-    setSelectedAlmacenes(prev => ({
-      ...prev,
-      [almacenId]: !prev[almacenId]
-    }))
-  }
-
   const updateItemQuantity = (itemId: string, cantidad: number) => {
     if (cantidad <= 0) {
       setUsedItems(prev => {
@@ -90,16 +87,67 @@ export function CloseObraDrawer({
         delete newItems[itemId]
         return newItems
       })
+      setItemDistribution(prev => {
+        const newDist = { ...prev }
+        delete newDist[itemId]
+        return newDist
+      })
     } else {
       setUsedItems(prev => ({
         ...prev,
         [itemId]: cantidad
       }))
+      if (!itemDistribution[itemId]) {
+        setItemDistribution(prev => ({
+          ...prev,
+          [itemId]: {
+            totalCantidad: cantidad,
+            almacenes: {}
+          }
+        }))
+      }
     }
   }
 
-  const selectedCount = Object.values(selectedAlmacenes).filter(Boolean).length
+  const updateItemDistribution = (itemId: string, almacenId: string, cantidad: number) => {
+    setItemDistribution(prev => {
+      const current = prev[itemId] || { totalCantidad: 0, almacenes: {} }
+      const newAlmacenes = { ...current.almacenes }
+      
+      if (cantidad <= 0) {
+        delete newAlmacenes[almacenId]
+      } else {
+        newAlmacenes[almacenId] = cantidad
+      }
+      
+      return {
+        ...prev,
+        [itemId]: {
+          totalCantidad: current.totalCantidad,
+          almacenes: newAlmacenes
+        }
+      }
+    })
+  }
+
+  const getDistributedTotal = (itemId: string) => {
+    const dist = itemDistribution[itemId]
+    if (!dist) return 0
+    return Object.values(dist.almacenes).reduce((a, b) => a + b, 0)
+  }
+
+  const filteredItems = MOCK_AVAILABLE_ITEMS.filter(item => {
+    const matchesCategory = selectedCategoria === 'Todas' || item.categoria === selectedCategoria
+    const matchesSearch = item.descripcion.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.codigo.toLowerCase().includes(searchTerm.toLowerCase())
+    return matchesCategory && matchesSearch && usedItems[item.id]
+  })
+
   const usedItemsCount = Object.keys(usedItems).length
+  const allDistributed = Object.entries(usedItems).every(([itemId, totalQty]) => {
+    const distributed = getDistributedTotal(itemId)
+    return distributed === totalQty
+  })
 
   return (
     <>
@@ -186,37 +234,80 @@ export function CloseObraDrawer({
                 </div>
               </div>
 
+              {/* Filtros */}
               <div className="space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por código o descripción..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 bg-background border border-border rounded text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                  />
+                </div>
+
+                <div className="flex gap-2 overflow-x-auto pb-2">
+                  {CATEGORIAS.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setSelectedCategoria(cat)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                        selectedCategoria === cat
+                          ? 'bg-accent text-background'
+                          : 'bg-border text-foreground hover:bg-border/80'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
                 <p className="text-sm font-medium text-foreground">Ítems disponibles:</p>
                 {MOCK_AVAILABLE_ITEMS.length === 0 ? (
                   <p className="text-xs text-muted-foreground p-3 bg-background border border-border rounded">
                     No hay items disponibles
                   </p>
                 ) : (
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {MOCK_AVAILABLE_ITEMS.map((item) => (
-                      <div
-                        key={item.id}
-                        className="bg-background border border-border rounded-lg p-3"
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground line-clamp-1">{item.descripcion}</p>
-                            <p className="text-xs text-muted-foreground font-mono">{item.codigo}</p>
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    {MOCK_AVAILABLE_ITEMS.map((item) => {
+                      const matchesCategory = selectedCategoria === 'Todas' || item.categoria === selectedCategoria
+                      const matchesSearch = item.descripcion.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        item.codigo.toLowerCase().includes(searchTerm.toLowerCase())
+                      
+                      if (!matchesCategory || !matchesSearch) return null
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="bg-background border border-border rounded-lg p-3"
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground line-clamp-1">{item.descripcion}</p>
+                              <p className="text-xs text-muted-foreground font-mono">{item.codigo}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground shrink-0 bg-border/50 px-2 py-1 rounded">
+                              {item.categoria}
+                            </span>
                           </div>
-                          <span className="text-xs text-muted-foreground shrink-0">Disp: {item.cantidad}</span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              max={item.cantidad}
+                              value={usedItems[item.id] || ''}
+                              onChange={(e) => updateItemQuantity(item.id, parseInt(e.target.value) || 0)}
+                              placeholder={`0 de ${item.cantidad}`}
+                              className="flex-1 px-2 py-1.5 bg-card border border-border rounded text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                            />
+                            <span className="text-xs text-muted-foreground shrink-0">de {item.cantidad}</span>
+                          </div>
                         </div>
-                        <input
-                          type="number"
-                          min="0"
-                          max={item.cantidad}
-                          value={usedItems[item.id] || ''}
-                          onChange={(e) => updateItemQuantity(item.id, parseInt(e.target.value) || 0)}
-                          placeholder="Cantidad usada"
-                          className="w-full px-2 py-1.5 bg-card border border-border rounded text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-                        />
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -237,45 +328,69 @@ export function CloseObraDrawer({
                 <div className="flex items-start gap-3">
                   <Warehouse className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-medium text-foreground">Asignar Materiales Sobrantes</p>
-                    <p className="text-xs text-muted-foreground mt-1">Selecciona los almacenes destino para los materiales de esta obra</p>
+                    <p className="text-sm font-medium text-foreground">Distribuir Materiales</p>
+                    <p className="text-xs text-muted-foreground mt-1">Especifica a qué almacén irá cada cantidad de material</p>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-foreground">Almacenes Externos:</p>
-                {MOCK_ALMACENES_EXTERNOS.length === 0 ? (
-                  <p className="text-xs text-muted-foreground p-3 bg-background border border-border rounded">
-                    No hay almacenes externos disponibles
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {MOCK_ALMACENES_EXTERNOS.map((almacen) => (
-                      <label
-                        key={almacen.id}
-                        className="flex items-center gap-3 p-3 border border-border rounded-lg hover:bg-background transition-colors cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedAlmacenes[almacen.id] || false}
-                          onChange={() => toggleAlmacen(almacen.id)}
-                          className="w-4 h-4 rounded accent-accent cursor-pointer"
-                        />
+              <div className="space-y-4 max-h-96 overflow-y-auto">
+                {Object.entries(usedItems).map(([itemId, totalCantidad]) => {
+                  const item = MOCK_AVAILABLE_ITEMS.find(i => i.id === itemId)
+                  const distributed = getDistributedTotal(itemId)
+                  const remaining = totalCantidad - distributed
+                  const dist = itemDistribution[itemId]
+
+                  return (
+                    <div
+                      key={itemId}
+                      className="bg-background border border-border rounded-lg p-3 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground">{almacen.nombre}</p>
-                          <p className="text-xs text-muted-foreground">{almacen.tipo}</p>
+                          <p className="text-sm font-medium text-foreground line-clamp-1">{item?.descripcion}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{item?.codigo}</p>
                         </div>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                        <span className={`text-xs font-bold px-2 py-1 rounded ${
+                          remaining === 0 ? 'bg-green-900/30 text-green-400' : 'bg-amber-900/30 text-amber-400'
+                        }`}>
+                          {distributed}/{totalCantidad}
+                        </span>
+                      </div>
+
+                      {/* Distribución por almacén */}
+                      <div className="space-y-1.5 text-xs">
+                        {MOCK_ALMACENES_EXTERNOS.map(almacen => (
+                          <div key={almacen.id} className="flex items-center gap-2">
+                            <span className="text-muted-foreground w-20 truncate">{almacen.nombre}</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max={totalCantidad}
+                              value={dist?.almacenes[almacen.id] || ''}
+                              onChange={(e) => updateItemDistribution(itemId, almacen.id, parseInt(e.target.value) || 0)}
+                              placeholder="0"
+                              className="flex-1 px-2 py-1 bg-card border border-border rounded text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {remaining > 0 && (
+                        <div className="text-xs text-orange-400 flex items-center gap-1 px-2 py-1 bg-orange-900/20 rounded">
+                          <AlertCircle className="w-3 h-3" />
+                          Faltan {remaining} unidades por distribuir
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
 
-              {selectedCount === 0 && (
+              {!allDistributed && (
                 <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-3">
                   <p className="text-xs text-orange-200">
-                    Selecciona al menos un almacén para continuar
+                    Distribuye todos los items antes de continuar
                   </p>
                 </div>
               )}
@@ -283,46 +398,73 @@ export function CloseObraDrawer({
           )}
 
           {step === 'confirm' && (
-            <div className="space-y-4 flex-1">
-              <div className="bg-background border border-border rounded-lg p-4 space-y-4">
+            <div className="space-y-4 flex-1 overflow-y-auto">
+              <div className="bg-background border border-border rounded-lg p-4 space-y-4 sticky top-0">
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Obra a cerrar:</p>
                   <p className="text-lg font-bold text-foreground">{obraName}</p>
                 </div>
-                
-                {usedItemsCount > 0 && (
-                  <div className="pt-4 border-t border-border">
-                    <p className="text-sm text-muted-foreground mb-2">Ítems utilizados ({usedItemsCount}):</p>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {Object.entries(usedItems).map(([itemId, cantidad]) => {
-                        const item = MOCK_AVAILABLE_ITEMS.find(i => i.id === itemId)
-                        return (
-                          <div key={itemId} className="flex items-center justify-between text-xs">
-                            <span className="text-foreground flex-1 line-clamp-1">{item?.descripcion}</span>
-                            <span className="text-accent font-bold shrink-0 ml-2">{cantidad} {item?.id.includes('MAT') ? 'u.' : 'pcs'}</span>
-                          </div>
-                        )
-                      })}
+              </div>
+
+              {/* Resumen por Almacén */}
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-foreground px-4">Materiales por Almacén:</p>
+                {MOCK_ALMACENES_EXTERNOS.map(almacen => {
+                  const itemsForAlmacen = Object.entries(itemDistribution).filter(
+                    ([_, dist]) => dist.almacenes[almacen.id] && dist.almacenes[almacen.id] > 0
+                  )
+
+                  if (itemsForAlmacen.length === 0) return null
+
+                  return (
+                    <div key={almacen.id} className="bg-background border border-border rounded-lg p-4 space-y-2">
+                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <Warehouse className="w-4 h-4 text-accent" />
+                        {almacen.nombre}
+                      </p>
+                      <div className="space-y-1.5">
+                        {itemsForAlmacen.map(([itemId, dist]) => {
+                          const item = MOCK_AVAILABLE_ITEMS.find(i => i.id === itemId)
+                          const cantidad = dist.almacenes[almacen.id]
+                          return (
+                            <div key={itemId} className="flex items-center justify-between text-xs px-2 py-1 bg-border/30 rounded">
+                              <span className="text-foreground line-clamp-1 flex-1">{item?.descripcion}</span>
+                              <span className="text-accent font-bold ml-2">{cantidad} {item?.codigo.includes('MAT') ? 'u.' : 'pcs'}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
-                
-                <div className="pt-4 border-t border-border">
-                  <p className="text-sm text-muted-foreground mb-2">Materiales irán a:</p>
-                  <div className="space-y-1">
-                    {Object.entries(selectedAlmacenes).map(([almacenId, selected]) => {
-                      if (!selected) return null
-                      const almacen = MOCK_ALMACENES_EXTERNOS.find(a => a.id === almacenId)
+                  )
+                })}
+              </div>
+
+              {/* Resumen por Ítem */}
+              {usedItemsCount > 0 && (
+                <div className="bg-background border border-border rounded-lg p-4 space-y-2">
+                  <p className="text-sm font-medium text-foreground">Ítems Totales ({usedItemsCount}):</p>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {Object.entries(usedItems).map(([itemId, totalCantidad]) => {
+                      const item = MOCK_AVAILABLE_ITEMS.find(i => i.id === itemId)
+                      const dist = itemDistribution[itemId]
+                      const almacenesAsignados = Object.entries(dist?.almacenes || {})
+                        .filter(([_, qty]) => qty > 0)
+                        .map(([almacenId]) => MOCK_ALMACENES_EXTERNOS.find(a => a.id === almacenId)?.nombre)
+                        .filter(Boolean)
+
                       return (
-                        <div key={almacenId} className="flex items-center gap-2 text-sm">
-                          <div className="w-2 h-2 rounded-full bg-accent" />
-                          <span className="text-foreground">{almacen?.nombre}</span>
+                        <div key={itemId} className="flex items-start justify-between text-xs px-2 py-1.5 bg-border/20 rounded">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-foreground line-clamp-1">{item?.descripcion}</p>
+                            <p className="text-muted-foreground text-xs mt-0.5">{almacenesAsignados.join(', ')}</p>
+                          </div>
+                          <span className="text-accent font-bold ml-2">{totalCantidad}</span>
                         </div>
                       )
                     })}
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -353,11 +495,11 @@ export function CloseObraDrawer({
                 if (step === 'review') handleNextStep()
                 else if (step === 'items-used') handleNextStep()
                 else if (step === 'distribution') {
-                  if (selectedCount > 0) handleNextStep()
+                  if (allDistributed) handleNextStep()
                 }
                 else if (step === 'confirm') handleConfirm()
               }}
-              disabled={step === 'distribution' && selectedCount === 0}
+              disabled={step === 'distribution' && !allDistributed}
               className="flex-1 px-4 py-2 bg-accent text-background rounded-lg hover:bg-accent/90 disabled:bg-muted disabled:text-muted-foreground transition-colors font-medium"
             >
               {step === 'review' ? 'Continuar' : step === 'items-used' ? 'Siguiente' : step === 'distribution' ? 'Revisar Cierre' : 'Confirmar'}
