@@ -5,7 +5,7 @@ import { AppShell } from '@/components/app-shell'
 import { useAlmacenes } from '@/hooks/use-almacenes'
 import { inventarioService, transferenciasService } from '@/services'
 import type { AlmacenItemResponse } from '@/services'
-import { ArrowRight, ArrowLeft, Upload, Send, Loader2, Check, Minus, Plus, X } from 'lucide-react'
+import { ArrowRight, ArrowLeft, Upload, Send, Loader2, Check, Minus, Plus, X, Search, ChevronDown } from 'lucide-react'
 
 type Step = 'almacenes' | 'items' | 'evidencia' | 'confirmacion'
 const STEPS: Step[] = ['almacenes', 'items', 'evidencia', 'confirmacion']
@@ -33,6 +33,8 @@ export default function TransferenciaPage() {
   const [originItems, setOriginItems] = useState<AlmacenItemResponse[]>([])
   const [loadingItems, setLoadingItems] = useState(false)
   const [allocatedItems, setAllocatedItems] = useState<AllocatedItem[]>([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [collapsedDestinos, setCollapsedDestinos] = useState<Set<string>>(new Set())
 
   // Step 3
   const [observaciones, setObservaciones] = useState('')
@@ -65,6 +67,27 @@ export default function TransferenciaPage() {
 
   // Reset allocations when origin changes
   useEffect(() => { setAllocatedItems([]) }, [almacenOrigenId])
+
+  const filteredOriginItems = useMemo(() => {
+    if (!searchTerm.trim()) return originItems
+    const term = searchTerm.toLowerCase()
+    return originItems.filter((ai) => {
+      const item = ai.item
+      return (
+        (item?.codigo ?? '').toLowerCase().includes(term) ||
+        (item?.nombre ?? '').toLowerCase().includes(term) ||
+        (item?.descripcion ?? '').toLowerCase().includes(term)
+      )
+    })
+  }, [originItems, searchTerm])
+
+  const toggleCollapseDestino = (id: string) => {
+    setCollapsedDestinos((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   const toggleDestino = (id: string) => {
     setDestinoIds((prev) => {
@@ -162,6 +185,8 @@ export default function TransferenciaPage() {
     setAllocatedItems([])
     setObservaciones('')
     setArchivo(null)
+    setSearchTerm('')
+    setCollapsedDestinos(new Set())
     setDone(false)
     setSubmitError('')
   }
@@ -256,90 +281,144 @@ export default function TransferenciaPage() {
           </div>
         )}
 
-        {/* Step 2: Allocate quantities */}
+        {/* Step 2: Allocate quantities — Two-panel layout */}
         {!done && step === 'items' && (
-          <div className="space-y-6">
-            <div className="bg-card border border-border rounded-lg p-4 sm:p-6">
-              <h2 className="text-lg font-bold text-foreground mb-4">Ítems disponibles en {origenAlmacen?.nombre ?? 'origen'}</h2>
-              {loadingItems ? (
-                <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin" /> Cargando...
-                </div>
-              ) : originItems.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4">No hay ítems con stock en este almacén.</p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {originItems.map((ai) => {
+          <div className="flex flex-col lg:flex-row gap-4">
+            {/* LEFT PANEL — Origin Stock */}
+            <div className="w-full lg:w-1/2 bg-card border border-border rounded-lg p-4 sm:p-5 flex flex-col max-h-[75vh]">
+              <h2 className="text-lg font-bold text-foreground mb-3">Stock en {origenAlmacen?.nombre ?? 'origen'}</h2>
+
+              {/* Search */}
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Buscar por código, nombre o descripción..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                />
+              </div>
+
+              {/* Items list */}
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                {loadingItems ? (
+                  <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+                    <Loader2 className="w-5 h-5 animate-spin" /> Cargando...
+                  </div>
+                ) : filteredOriginItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    {originItems.length === 0 ? 'No hay ítems con stock en este almacén.' : 'No se encontraron ítems.'}
+                  </p>
+                ) : (
+                  filteredOriginItems.map((ai) => {
                     const isAdded = allocatedItems.some((a) => a.itemId === ai.item_id)
+                    const allocated = allocatedItems.find((a) => a.itemId === ai.item_id)
+                    const remaining = allocated ? ai.cantidad - totalAllocated(allocated) : ai.cantidad
                     return (
                       <button
                         key={ai.id}
                         onClick={() => addItemToAllocate(ai)}
                         disabled={isAdded}
-                        className={`p-3 rounded-lg border text-left transition-all ${
-                          isAdded ? 'border-accent/50 bg-accent/5 opacity-60' : 'border-border hover:border-accent'
+                        className={`w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                          isAdded
+                            ? remaining === 0
+                              ? 'border-red-500/30 bg-red-500/5 opacity-50 cursor-not-allowed'
+                              : 'border-accent/50 bg-accent/5 opacity-70 cursor-default'
+                            : 'border-border hover:border-accent hover:bg-accent/5'
                         }`}
                       >
-                        <p className="font-mono text-xs text-muted-foreground">{ai.item?.codigo ?? '—'}</p>
-                        <p className="text-sm font-medium text-foreground line-clamp-1">{ai.item?.descripcion ?? ai.item?.nombre ?? '—'}</p>
-                        <p className="text-xs text-accent mt-1">Stock: {ai.cantidad} {ai.item?.unidad ?? ''}</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono text-xs text-muted-foreground">{ai.item?.codigo ?? '—'}</p>
+                          <p className="text-sm font-medium text-foreground truncate">{ai.item?.descripcion ?? ai.item?.nombre ?? '—'}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`text-sm font-bold ${isAdded && remaining === 0 ? 'text-red-400' : 'text-accent'}`}>
+                            {isAdded ? remaining : ai.cantidad}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{ai.item?.unidad ?? ''}</p>
+                        </div>
                       </button>
                     )
-                  })}
-                </div>
-              )}
+                  })
+                )}
+              </div>
             </div>
 
-            {allocatedItems.length > 0 && (
-              <div className="bg-card border border-border rounded-lg p-4 sm:p-6">
-                <h2 className="text-lg font-bold text-foreground mb-4">Asignar cantidades por destino</h2>
-                <div className="space-y-4">
-                  {allocatedItems.map((item) => (
-                    <div key={item.itemId} className="border border-border rounded-lg p-4">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <p className="font-mono text-xs text-muted-foreground">{item.codigo}</p>
-                          <p className="text-sm font-medium text-foreground">{item.descripcion ?? item.nombre ?? '—'}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Stock: {item.stockOrigen} {item.unidad} | Asignado: {totalAllocated(item)} | Restante: {item.stockOrigen - totalAllocated(item)}
-                          </p>
+            {/* RIGHT PANEL — Destination Warehouses */}
+            <div className="w-full lg:w-1/2 flex flex-col max-h-[75vh] overflow-y-auto space-y-3 pr-1">
+              {allocatedItems.length === 0 ? (
+                <div className="bg-card border border-border border-dashed rounded-lg p-8 flex items-center justify-center h-full min-h-[200px]">
+                  <p className="text-sm text-muted-foreground text-center">
+                    Selecciona ítems del panel izquierdo para asignar cantidades a los almacenes de destino
+                  </p>
+                </div>
+              ) : (
+                destinosArr.map((dest) => {
+                  const isCollapsed = collapsedDestinos.has(dest.id)
+                  const itemsWithQty = allocatedItems.filter((a) => {
+                    const al = a.allocations.find((al) => al.almacenDestinoId === dest.id)
+                    return al && al.cantidad > 0
+                  }).length
+                  return (
+                    <div key={dest.id} className="bg-card border border-border rounded-lg">
+                      <button
+                        onClick={() => toggleCollapseDestino(dest.id)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-accent/5 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-accent" />
+                          <h3 className="text-sm font-bold text-foreground">{dest.nombre}</h3>
+                          <span className="text-xs text-muted-foreground">
+                            ({itemsWithQty} {itemsWithQty === 1 ? 'ítem' : 'ítems'})
+                          </span>
                         </div>
-                        <button onClick={() => removeAllocatedItem(item.itemId)} className="p-1 hover:bg-red-500/20 rounded text-red-400">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {destinosArr.map((dest) => {
-                          const alloc = item.allocations.find((al) => al.almacenDestinoId === dest.id)
-                          const cant = alloc?.cantidad ?? 0
-                          return (
-                            <div key={dest.id} className="flex items-center gap-2 bg-background border border-border rounded-lg p-2">
-                              <span className="text-xs text-foreground flex-1 truncate">{dest.nombre}</span>
-                              <div className="flex items-center gap-1">
-                                <button onClick={() => setAllocation(item.itemId, dest.id, cant - 1)} className="p-1 rounded bg-border hover:bg-accent/20">
-                                  <Minus className="w-3 h-3 text-foreground" />
-                                </button>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={item.stockOrigen}
-                                  value={cant}
-                                  onChange={(e) => setAllocation(item.itemId, dest.id, parseInt(e.target.value) || 0)}
-                                  className="w-16 px-2 py-1 bg-background border border-border rounded text-sm text-center text-foreground"
-                                />
-                                <button onClick={() => setAllocation(item.itemId, dest.id, cant + 1)} className="p-1 rounded bg-border hover:bg-accent/20">
-                                  <Plus className="w-3 h-3 text-foreground" />
+                        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isCollapsed ? '' : 'rotate-180'}`} />
+                      </button>
+
+                      {!isCollapsed && (
+                        <div className="px-4 pb-4 space-y-2">
+                          {allocatedItems.map((item) => {
+                            const alloc = item.allocations.find((al) => al.almacenDestinoId === dest.id)
+                            const cant = alloc?.cantidad ?? 0
+                            const remaining = item.stockOrigen - totalAllocated(item)
+                            return (
+                              <div key={item.itemId} className="flex items-center gap-2 bg-background border border-border rounded-lg p-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium text-foreground truncate">{item.descripcion ?? item.nombre ?? '—'}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    <span className="font-mono">{item.codigo}</span> · Restante: <span className={remaining === 0 && cant === 0 ? 'text-red-400' : 'text-accent'}>{remaining}</span> {item.unidad}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button onClick={() => setAllocation(item.itemId, dest.id, cant - 1)} className="p-1 rounded bg-border hover:bg-accent/20">
+                                    <Minus className="w-3 h-3 text-foreground" />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={item.stockOrigen}
+                                    value={cant}
+                                    onChange={(e) => setAllocation(item.itemId, dest.id, parseInt(e.target.value) || 0)}
+                                    className="w-14 px-1 py-1 bg-background border border-border rounded text-sm text-center text-foreground"
+                                  />
+                                  <button onClick={() => setAllocation(item.itemId, dest.id, cant + 1)} className="p-1 rounded bg-border hover:bg-accent/20">
+                                    <Plus className="w-3 h-3 text-foreground" />
+                                  </button>
+                                </div>
+                                <button onClick={() => removeAllocatedItem(item.itemId)} className="p-1 hover:bg-red-500/20 rounded text-red-400 shrink-0">
+                                  <X className="w-3.5 h-3.5" />
                                 </button>
                               </div>
-                            </div>
-                          )
-                        })}
-                      </div>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  )
+                })
+              )}
+            </div>
           </div>
         )}
 
