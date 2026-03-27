@@ -2,10 +2,12 @@
 
 import React, { useState, useMemo } from 'react'
 import { AppShell } from '@/components/app-shell'
-import { Search, ChevronDown, Plus, Loader2 } from 'lucide-react'
+import { Search, ChevronDown, Plus, Loader2, PackagePlus, Trash2 } from 'lucide-react'
 import { AddItemModal } from '@/components/add-item-modal'
+import { StockEntryModal } from '@/components/stock-entry-modal'
 import { useInventario } from '@/hooks/use-inventario'
 import { useCategorias } from '@/hooks/use-categorias'
+import { useAlmacenes } from '@/hooks/use-almacenes'
 import type { ItemInventario } from '@/types'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? ''
@@ -21,13 +23,16 @@ function getItemImage(item: ItemInventario): string {
 }
 
 export default function ImportacionAntiguaPage() {
-  const { items, isLoading, error, createItem } = useInventario('importacion_antigua')
+  const { items, isLoading, error, createItem, deleteItem, createEntradaStock } = useInventario('importacion_antigua')
   const { categorias } = useCategorias()
+  const { almacenes } = useAlmacenes()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategoria, setSelectedCategoria] = useState('')
   const [selectedAlmacen, setSelectedAlmacen] = useState('')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [modalOpen, setModalOpen] = useState(false)
+  const [stockEntryItem, setStockEntryItem] = useState<ItemInventario | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const almacenesUnicos = useMemo(() => {
     const map = new Map<string, string>()
@@ -64,6 +69,17 @@ export default function ImportacionAntiguaPage() {
 
   const handleAddItem = async (dto: Parameters<typeof createItem>[0]) => {
     return createItem(dto)
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar este ítem?')) return
+    setDeletingId(id)
+    await deleteItem(id)
+    setDeletingId(null)
+  }
+
+  const handleStockEntry = async (itemId: string, almacenId: string, cantidad: number, descripcion?: string) => {
+    return createEntradaStock(itemId, { almacenId, cantidad, descripcion })
   }
 
   const hasFilters = searchTerm || selectedCategoria || selectedAlmacen
@@ -146,7 +162,7 @@ export default function ImportacionAntiguaPage() {
         {!isLoading && !error && (
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[480px]">
+              <table className="w-full text-sm min-w-[540px]">
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
                     <th className="px-3 py-3 text-left font-semibold text-foreground hidden sm:table-cell">n°</th>
@@ -156,7 +172,7 @@ export default function ImportacionAntiguaPage() {
                     <th className="px-3 py-3 text-left font-semibold text-foreground">Und</th>
                     <th className="px-3 py-3 text-left font-semibold text-foreground">Stock</th>
                     <th className="px-3 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Rendimiento</th>
-                    <th className="px-3 py-3 text-center font-semibold text-foreground">Ubic.</th>
+                    <th className="px-3 py-3 text-center font-semibold text-foreground">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -181,13 +197,31 @@ export default function ImportacionAntiguaPage() {
                         <td className="px-3 py-3 text-foreground text-xs">{item.unidad}</td>
                         <td className="px-3 py-3 font-bold text-accent text-sm">{item.stock_total}</td>
                         <td className="px-3 py-3 text-foreground text-xs hidden lg:table-cell">{item.rendimiento ?? ''}</td>
-                        <td className="px-3 py-3 text-center">
-                          <button
-                            onClick={() => toggleRow(item.id)}
-                            className="inline-flex items-center px-2 py-1 rounded bg-border hover:bg-border/80 transition-colors"
-                          >
-                            <ChevronDown className={`w-3.5 h-3.5 text-foreground transition-transform ${expandedRows.has(item.id) ? 'rotate-180' : ''}`} />
-                          </button>
+                        <td className="px-3 py-3">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => setStockEntryItem(item)}
+                              title="Registrar entrada"
+                              className="p-1.5 rounded hover:bg-accent/20 text-accent transition-colors"
+                            >
+                              <PackagePlus className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => toggleRow(item.id)}
+                              title="Ver ubicaciones"
+                              className="p-1.5 rounded hover:bg-border transition-colors"
+                            >
+                              <ChevronDown className={`w-4 h-4 text-foreground transition-transform ${expandedRows.has(item.id) ? 'rotate-180' : ''}`} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(item.id)}
+                              disabled={deletingId === item.id}
+                              title="Eliminar"
+                              className="p-1.5 rounded hover:bg-red-500/20 text-red-400 transition-colors disabled:opacity-50"
+                            >
+                              {deletingId === item.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                       {expandedRows.has(item.id) && (
@@ -231,6 +265,15 @@ export default function ImportacionAntiguaPage() {
         onAdd={handleAddItem}
         inventoryType="antigua"
         categorias={categorias}
+        almacenes={almacenes}
+      />
+
+      <StockEntryModal
+        isOpen={!!stockEntryItem}
+        onClose={() => setStockEntryItem(null)}
+        item={stockEntryItem}
+        almacenes={almacenes}
+        onSubmit={handleStockEntry}
       />
     </AppShell>
   )

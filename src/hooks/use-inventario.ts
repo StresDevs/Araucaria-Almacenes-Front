@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { inventarioService } from '@/services'
 import { HttpError } from '@/services'
 import type { ItemInventario, ItemOrigen } from '@/types'
-import type { CreateItemDto, UpdateItemDto } from '@/services/endpoints/inventario.service'
+import type { CreateItemDto, UpdateItemDto, CreateEntradaStockDto } from '@/services/endpoints/inventario.service'
 
 interface UseInventarioState {
   items: ItemInventario[]
@@ -88,6 +88,19 @@ export function useInventario(tipoOrigen?: ItemOrigen) {
     }
   }, [fetchItems])
 
+  const createEntradaStock = useCallback(async (
+    itemId: string,
+    dto: CreateEntradaStockDto,
+  ): Promise<boolean> => {
+    try {
+      await inventarioService.createEntradaStock(itemId, dto)
+      await fetchItems()
+      return true
+    } catch {
+      return false
+    }
+  }, [fetchItems])
+
   return {
     items: state.items,
     isLoading: state.isLoading,
@@ -98,5 +111,6 @@ export function useInventario(tipoOrigen?: ItemOrigen) {
     deleteItem,
     uploadFoto,
     setAlmacenStock,
+    createEntradaStock,
   }
 }
