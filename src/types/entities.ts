@@ -64,10 +64,10 @@ export interface ObraItem {
   id: string
   nombre: string
   estado: 'activa' | 'finalizada'
-  ubicacion: string
+  ubicacion: string | null
   fecha_inicio: string
-  fecha_fin?: string
-  responsable: string
+  fecha_fin?: string | null
+  responsable: string | null
   items_total: number
 }
 

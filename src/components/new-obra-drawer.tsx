@@ -7,12 +7,13 @@ interface NewObraDrawerProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (data: NewObraFormData) => void
+  isLoading?: boolean
 }
 
 export interface NewObraFormData {
   nombre: string
   ubicacion: string
-  responsable: string
+  responsable?: string
   fecha_inicio: string
 }
 
@@ -94,7 +95,7 @@ export function NewObraDrawer({ isOpen, onClose, onSubmit }: NewObraDrawerProps)
 
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
-              Responsable
+              Responsable <span className="text-muted-foreground font-normal">(opcional)</span>
             </label>
             <input
               type="text"
@@ -102,7 +103,6 @@ export function NewObraDrawer({ isOpen, onClose, onSubmit }: NewObraDrawerProps)
               onChange={(e) => setFormData({ ...formData, responsable: e.target.value })}
               placeholder="Ingresa el responsable"
               className="w-full px-4 py-2 bg-background border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-accent transition-colors"
-              required
             />
           </div>
 

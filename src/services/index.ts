@@ -2,7 +2,7 @@
 export { authService, usersService } from './endpoints/auth.service'
 export type { LoginPayload, ChangePasswordPayload, CreateUserPayload } from './endpoints/auth.service'
 export { obrasService } from './endpoints/obras.service'
-export type { CreateObraDto, CloseObraDto } from './endpoints/obras.service'
+export type { CreateObraDto, UpdateObraDto, CloseObraDto } from './endpoints/obras.service'
 export { almacenesService } from './endpoints/almacenes.service'
 export type { GetInventarioParams } from './endpoints/almacenes.service'
 export { prestamosService } from './endpoints/prestamos.service'

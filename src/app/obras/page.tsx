@@ -2,46 +2,43 @@
 
 import { useState } from 'react'
 import { AppShell } from '@/components/app-shell'
-import { MOCK_OBRAS, ObraItem } from '@/lib/constants'
+import { useObras } from '@/hooks/use-obras'
+import type { ObraItem } from '@/types'
 import { ObraCard } from '@/components/obra-card'
 import { NewObraDrawer, NewObraFormData } from '@/components/new-obra-drawer'
 import { CloseObraDrawer } from '@/components/close-obra-drawer'
-import { Plus } from 'lucide-react'
+import { Plus, Loader2 } from 'lucide-react'
 
 export default function ObrasPage() {
-  const [obras, setObras] = useState<ObraItem[]>(MOCK_OBRAS)
+  const { obras, isLoading, error, createObra, closeObra } = useObras()
   const [activeTab, setActiveTab] = useState<'active' | 'finalized'>('active')
   const [newObraOpen, setNewObraOpen] = useState(false)
   const [closeObraOpen, setCloseObraOpen] = useState(false)
   const [selectedObraToClose, setSelectedObraToClose] = useState<ObraItem | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   const activeObras = obras.filter((o) => o.estado === 'activa')
   const finalizedObras = obras.filter((o) => o.estado === 'finalizada')
   const displayedObras = activeTab === 'active' ? activeObras : finalizedObras
 
-  const handleNewObra = (data: NewObraFormData) => {
-    const newObra: ObraItem = {
-      id: `obra-${Date.now()}`,
+  const handleNewObra = async (data: NewObraFormData) => {
+    setSubmitting(true)
+    const success = await createObra({
       nombre: data.nombre,
-      ubicacion: data.ubicacion,
-      responsable: data.responsable,
-      fecha_inicio: data.fecha_inicio,
-      estado: 'activa',
-      items_total: 0,
-    }
-    setObras([newObra, ...obras])
-    setNewObraOpen(false)
+      ubicacion: data.ubicacion || undefined,
+      responsable: data.responsable || undefined,
+      fechaInicio: data.fecha_inicio,
+    })
+    setSubmitting(false)
+    if (success) setNewObraOpen(false)
   }
 
-  const handleCloseObra = () => {
-    if (selectedObraToClose) {
-      setObras(
-        obras.map((o) =>
-          o.id === selectedObraToClose.id
-            ? { ...o, estado: 'finalizada', fecha_fin: new Date().toISOString().split('T')[0] }
-            : o
-        )
-      )
+  const handleCloseObra = async () => {
+    if (!selectedObraToClose) return
+    setSubmitting(true)
+    const success = await closeObra(selectedObraToClose.id)
+    setSubmitting(false)
+    if (success) {
       setCloseObraOpen(false)
       setSelectedObraToClose(null)
     }
@@ -96,7 +93,15 @@ export default function ObrasPage() {
         </div>
 
         {/* Obras Grid */}
-        {displayedObras.length === 0 ? (
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-accent" />
+          </div>
+        ) : error ? (
+          <div className="text-center py-12 bg-card border border-border rounded-lg">
+            <p className="text-red-400">{error}</p>
+          </div>
+        ) : displayedObras.length === 0 ? (
           <div className="text-center py-12 bg-card border border-border rounded-lg">
             <p className="text-muted-foreground">
               {activeTab === 'active' ? 'No hay obras activas aún' : 'No hay obras finalizadas aún'}
