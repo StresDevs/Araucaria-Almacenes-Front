@@ -103,10 +103,6 @@ function parseOCRText(raw: string, setForm: React.Dispatch<React.SetStateAction<
     if (!updates.und && /^(pza|pzas|caja|cajas|m2|ml|kg|lt|rollo|u|un|unid)$/i.test(line)) {
       updates.und = line.toLowerCase()
     }
-    // Stock number: 1-4 digit standalone
-    if (!updates.stockTotal && /^\d{1,4}$/.test(line)) {
-      updates.stockTotal = line
-    }
     // Rendimiento: number with unit suffix
     if (!updates.rendimiento && /^\d+([.,]\d+)?\s*(m2|ml|kg|pzas)$/i.test(line)) {
       updates.rendimiento = line
@@ -119,9 +115,6 @@ function parseOCRText(raw: string, setForm: React.Dispatch<React.SetStateAction<
     ) {
       updates.descripcion = line
     }
-    // Category hints
-    if (/casco|chaleco|guante|bota|epp|seguridad/i.test(line)) updates.categoria = 'Seguridad'
-    if (/herramienta|taladro|sierra|andamio|equipo/i.test(line)) updates.categoria = 'Equipo y Herramientas'
   }
 
   if (Object.keys(updates).length > 0) {
@@ -130,31 +123,51 @@ function parseOCRText(raw: string, setForm: React.Dispatch<React.SetStateAction<
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Categoria = 'Construcción' | 'Seguridad' | 'Equipo y Herramientas'
-
-interface AddItemForm {
-  codigo: string
-  descripcion: string
-  und: string
-  rendimiento: string
-  categoria: Categoria
-  stockTotal: string
-}
+import type { CategoriaItem, ProveedorItem, ItemOrigen } from '@/types'
+import type { CreateItemDto } from '@/services/endpoints/inventario.service'
+import { inventarioService } from '@/services/endpoints/inventario.service'
 
 interface AddItemModalProps {
   isOpen: boolean
   onClose: () => void
-  onAdd: (item: AddItemForm) => void
-  inventoryType: 'nueva' | 'antigua'
+  onAdd: (dto: CreateItemDto) => Promise<boolean>
+  inventoryType: 'nueva' | 'antigua' | 'nacional'
+  categorias?: CategoriaItem[]
+  proveedores?: ProveedorItem[]
+}
+
+const TIPO_ORIGEN_MAP: Record<string, ItemOrigen> = {
+  nueva: 'importacion_nueva',
+  antigua: 'importacion_antigua',
+  nacional: 'compra_nacional',
+}
+
+const TIPO_CAMBIO = 6.96
+
+interface AddItemForm {
+  codigo: string
+  nombre: string
+  descripcion: string
+  und: string
+  rendimiento: string
+  categoriaId: string
+  proveedorId: string
+  precioUnitarioBob: string
+  precioUnitarioUsd: string
+  itemNumero: string
 }
 
 const EMPTY_FORM: AddItemForm = {
   codigo: '',
+  nombre: '',
   descripcion: '',
   und: '',
   rendimiento: '',
-  categoria: 'Construcción',
-  stockTotal: '',
+  categoriaId: '',
+  proveedorId: '',
+  precioUnitarioBob: '',
+  precioUnitarioUsd: '',
+  itemNumero: '',
 }
 
 // ─── Image helper ─────────────────────────────────────────────────────────────
@@ -168,8 +181,9 @@ export function getItemImage(descripcion: string, codigo: string): string {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export function AddItemModal({ isOpen, onClose, onAdd, inventoryType }: AddItemModalProps) {
+export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias = [], proveedores = [] }: AddItemModalProps) {
   const [form, setForm] = useState<AddItemForm>(EMPTY_FORM)
+  const [submitting, setSubmitting] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanStatus, setScanStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle')
   const [scanMessage, setScanMessage] = useState('')
@@ -177,6 +191,85 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType }: AddItemM
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+
+  // ─── Ítem n° uniqueness validation ──────────────────────────────────────────
+  const [itemNumeroStatus, setItemNumeroStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle')
+  const itemNumeroTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const checkItemNumeroUniqueness = useCallback((itemNumero: string) => {
+    if (itemNumeroTimerRef.current) clearTimeout(itemNumeroTimerRef.current)
+    if (!itemNumero.trim()) { setItemNumeroStatus('idle'); return }
+    setItemNumeroStatus('checking')
+    itemNumeroTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await inventarioService.checkItemNumero(itemNumero.trim())
+        setItemNumeroStatus(res.data.exists ? 'taken' : 'available')
+      } catch {
+        setItemNumeroStatus('idle')
+      }
+    }, 500)
+  }, [])
+
+  const handleItemNumeroChange = useCallback((value: string) => {
+    setForm((p) => ({ ...p, itemNumero: value }))
+    checkItemNumeroUniqueness(value)
+  }, [checkItemNumeroUniqueness])
+
+  // ─── Pricing state ─────────────────────────────────────────────────────────
+  const [showUsd, setShowUsd] = useState(false)
+  const [syncConversion, setSyncConversion] = useState(false)
+
+  const handleUsdToggle = useCallback((checked: boolean) => {
+    setShowUsd(checked)
+    if (!checked) {
+      setSyncConversion(false)
+      setForm((p) => ({ ...p, precioUnitarioUsd: '' }))
+    }
+  }, [])
+
+  const handleSyncToggle = useCallback((checked: boolean) => {
+    setSyncConversion(checked)
+    if (checked) {
+      // Recalculate BOB from current USD
+      setForm((p) => {
+        const usd = parseFloat(p.precioUnitarioUsd)
+        if (!isNaN(usd) && usd > 0) {
+          return { ...p, precioUnitarioBob: (usd * TIPO_CAMBIO).toFixed(2) }
+        }
+        return p
+      })
+    }
+  }, [])
+
+  const handleUsdChange = useCallback((value: string) => {
+    setForm((p) => {
+      const next = { ...p, precioUnitarioUsd: value }
+      if (syncConversion) {
+        const usd = parseFloat(value)
+        next.precioUnitarioBob = (!isNaN(usd) && usd > 0) ? (usd * TIPO_CAMBIO).toFixed(2) : ''
+      }
+      return next
+    })
+  }, [syncConversion])
+
+  // ─── Searchable category combobox ──────────────────────────────────────────
+  const [catSearch, setCatSearch] = useState('')
+  const [catOpen, setCatOpen] = useState(false)
+  const catRef = useRef<HTMLDivElement>(null)
+
+  const filteredCategorias = catSearch
+    ? categorias.filter((c) => c.nombre.toLowerCase().includes(catSearch.toLowerCase()))
+    : categorias
+
+  const selectedCatName = categorias.find((c) => c.id === form.categoriaId)?.nombre ?? ''
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (catRef.current && !catRef.current.contains(e.target as Node)) setCatOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
@@ -246,14 +339,35 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType }: AddItemM
     setForm(EMPTY_FORM)
     setScanStatus('idle')
     setScanMessage('')
+    setSubmitting(false)
+    setItemNumeroStatus('idle')
+    setShowUsd(false)
+    setSyncConversion(false)
+    setCatSearch('')
+    setCatOpen(false)
     onClose()
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.codigo || !form.descripcion) return
-    onAdd(form)
-    handleClose()
+    if (!form.codigo || !form.und || itemNumeroStatus === 'taken' || itemNumeroStatus === 'checking') return
+    setSubmitting(true)
+    const dto: CreateItemDto = {
+      tipoOrigen: TIPO_ORIGEN_MAP[inventoryType],
+      codigo: form.codigo,
+      unidad: form.und,
+      ...(form.nombre && { nombre: form.nombre }),
+      ...(form.descripcion && { descripcion: form.descripcion }),
+      ...(form.rendimiento && { rendimiento: form.rendimiento }),
+      ...(form.categoriaId && { categoriaId: form.categoriaId }),
+      ...(form.proveedorId && { proveedorId: form.proveedorId }),
+      ...(form.itemNumero && { itemNumero: form.itemNumero }),
+      ...(form.precioUnitarioBob && { precioUnitarioBob: parseFloat(form.precioUnitarioBob) }),
+      ...(form.precioUnitarioUsd && { precioUnitarioUsd: parseFloat(form.precioUnitarioUsd) }),
+    }
+    const ok = await onAdd(dto)
+    setSubmitting(false)
+    if (ok) handleClose()
   }
 
   if (!isOpen) return null
@@ -268,7 +382,7 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType }: AddItemM
           <div>
             <h2 className="text-base font-bold text-foreground">Agregar Ítem</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Inventario {inventoryType === 'nueva' ? 'Importación Nueva' : 'Importación Antigua'}
+              {inventoryType === 'nueva' ? 'Importación Nueva' : inventoryType === 'antigua' ? 'Importación Antigua' : 'Compra Nacional'}
             </p>
           </div>
           <button onClick={handleClose} className="p-2 rounded-lg hover:bg-border transition-colors">
@@ -360,60 +474,199 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType }: AddItemM
               />
             </div>
 
+            {inventoryType === 'nacional' && (
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Nombre</label>
+                <input
+                  value={form.nombre}
+                  onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
+                  placeholder="Ej. Guantes de latex"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            )}
+
             <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Descripción *</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Descripción</label>
               <input
                 value={form.descripcion}
                 onChange={(e) => setForm((p) => ({ ...p, descripcion: e.target.value }))}
                 placeholder="Ej. porcelanato 60x60"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Unidad *</label>
+              <input
+                value={form.und}
+                onChange={(e) => setForm((p) => ({ ...p, und: e.target.value }))}
+                placeholder="pza, caja, m2..."
                 required
                 className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Unidad</label>
-              <input
-                value={form.und}
-                onChange={(e) => setForm((p) => ({ ...p, und: e.target.value }))}
-                placeholder="pza, caja, m2..."
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-            </div>
+            {inventoryType === 'nueva' && (
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Ítem n°</label>
+                <div className="relative">
+                  <input
+                    value={form.itemNumero}
+                    onChange={(e) => handleItemNumeroChange(e.target.value)}
+                    placeholder="Ej. 9013"
+                    className={`w-full px-3 py-2 bg-background border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 ${
+                      itemNumeroStatus === 'taken'
+                        ? 'border-red-500 focus:ring-red-500'
+                        : itemNumeroStatus === 'available'
+                          ? 'border-green-500 focus:ring-green-500'
+                          : 'border-border focus:ring-accent'
+                    }`}
+                  />
+                  {itemNumeroStatus === 'checking' && (
+                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />
+                  )}
+                  {itemNumeroStatus === 'available' && (
+                    <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                  )}
+                  {itemNumeroStatus === 'taken' && (
+                    <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />
+                  )}
+                </div>
+                {itemNumeroStatus === 'taken' && (
+                  <p className="text-xs text-red-400 mt-1">Este ítem n° ya está registrado.</p>
+                )}
+              </div>
+            )}
 
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Stock Total</label>
-              <input
-                type="number"
-                min="0"
-                value={form.stockTotal}
-                onChange={(e) => setForm((p) => ({ ...p, stockTotal: e.target.value }))}
-                placeholder="0"
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-            </div>
+            {inventoryType !== 'nacional' && (
+              <div className={inventoryType === 'antigua' ? '' : ''}>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Rendimiento</label>
+                <input
+                  value={form.rendimiento}
+                  onChange={(e) => setForm((p) => ({ ...p, rendimiento: e.target.value }))}
+                  placeholder="Ej. 1.44 m2"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            )}
 
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Rendimiento</label>
-              <input
-                value={form.rendimiento}
-                onChange={(e) => setForm((p) => ({ ...p, rendimiento: e.target.value }))}
-                placeholder="Ej. 1.44 m2"
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
+            <div className="sm:col-span-2" ref={catRef}>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Categoría</label>
-              <select
-                value={form.categoria}
-                onChange={(e) => setForm((p) => ({ ...p, categoria: e.target.value as Categoria }))}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-accent"
-              >
-                <option value="Construcción">Construcción</option>
-                <option value="Seguridad">Seguridad</option>
-                <option value="Equipo y Herramientas">Equipo y Herramientas</option>
-              </select>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder={selectedCatName || 'Buscar categoría...'}
+                  value={catOpen ? catSearch : selectedCatName}
+                  onChange={(e) => { setCatSearch(e.target.value); setCatOpen(true) }}
+                  onFocus={() => setCatOpen(true)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                {form.categoriaId && (
+                  <button
+                    type="button"
+                    onClick={() => { setForm((p) => ({ ...p, categoriaId: '' })); setCatSearch(''); setCatOpen(false) }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-border transition-colors"
+                  >
+                    <X className="w-3 h-3 text-muted-foreground" />
+                  </button>
+                )}
+                {catOpen && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                    {filteredCategorias.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">Sin resultados</p>
+                    ) : (
+                      filteredCategorias.map((cat) => (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => { setForm((p) => ({ ...p, categoriaId: cat.id })); setCatSearch(''); setCatOpen(false) }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors ${
+                            form.categoriaId === cat.id ? 'bg-accent/10 text-accent font-medium' : 'text-foreground'
+                          }`}
+                        >
+                          {cat.nombre}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {inventoryType === 'nacional' && (
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Proveedor</label>
+                <select
+                  value={form.proveedorId}
+                  onChange={(e) => setForm((p) => ({ ...p, proveedorId: e.target.value }))}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+                >
+                  <option value="">Sin proveedor</option>
+                  {proveedores.map((prov) => (
+                    <option key={prov.id} value={prov.id}>{prov.nombre}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="sm:col-span-2 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Precio BOB</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.precioUnitarioBob}
+                  onChange={(e) => setForm((p) => ({ ...p, precioUnitarioBob: e.target.value }))}
+                  placeholder="0.00"
+                  readOnly={syncConversion}
+                  className={`w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent ${
+                    syncConversion ? 'opacity-60 cursor-not-allowed' : ''
+                  }`}
+                />
+                {syncConversion && (
+                  <p className="text-xs text-muted-foreground mt-1">Calculado automáticamente: USD × {TIPO_CAMBIO}</p>
+                )}
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showUsd}
+                  onChange={(e) => handleUsdToggle(e.target.checked)}
+                  className="w-4 h-4 rounded border-border text-accent focus:ring-accent accent-[hsl(var(--accent))]"
+                />
+                <span className="text-xs font-medium text-muted-foreground">Añadir precio en dólares (USD)</span>
+              </label>
+
+              {showUsd && (
+                <div className="space-y-2">
+                  <div className="flex items-end gap-3">
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-muted-foreground mb-1.5">Precio USD</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.precioUnitarioUsd}
+                        onChange={(e) => handleUsdChange(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                      />
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={syncConversion}
+                      onChange={(e) => handleSyncToggle(e.target.checked)}
+                      className="w-4 h-4 rounded border-border text-accent focus:ring-accent accent-[hsl(var(--accent))]"
+                    />
+                    <span className="text-xs font-medium text-muted-foreground">Sincronizar conversión a bolivianos (1 USD = {TIPO_CAMBIO} BOB)</span>
+                  </label>
+                </div>
+              )}
             </div>
           </div>
 
@@ -427,18 +680,21 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType }: AddItemM
               />
               <div className="min-w-0">
                 <p className="text-xs font-mono text-muted-foreground truncate">{form.codigo || '—'}</p>
-                <p className="text-sm font-medium text-foreground truncate">{form.descripcion || '—'}</p>
+                <p className="text-sm font-medium text-foreground truncate">{form.nombre || form.descripcion || '—'}</p>
               </div>
             </div>
           )}
 
           <button
             type="submit"
-            disabled={!form.codigo || !form.descripcion}
+            disabled={!form.codigo || !form.und || submitting || itemNumeroStatus === 'taken' || itemNumeroStatus === 'checking'}
             className="w-full flex items-center justify-center gap-2 py-3 bg-accent text-background rounded-xl font-semibold text-sm hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <Plus className="w-4 h-4" />
-            Agregar al Inventario
+            {submitting ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</>
+            ) : (
+              <><Plus className="w-4 h-4" /> Agregar al Inventario</>
+            )}
           </button>
         </form>
       </div>

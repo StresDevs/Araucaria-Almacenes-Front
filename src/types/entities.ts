@@ -73,6 +73,52 @@ export interface ObraItem {
 
 // ─── Inventario ───────────────────────────────────────────────────────────────
 
+export type ItemOrigen = 'importacion_nueva' | 'importacion_antigua' | 'compra_nacional'
+
+export interface ItemUbicacion {
+  almacen_id: string
+  almacen_nombre: string | null
+  cantidad: number
+}
+
+export interface ItemInventario {
+  id: string
+  tipo_origen: ItemOrigen
+  categoria_id: string | null
+  categoria_nombre: string | null
+  item_numero: string | null
+  codigo: string
+  nombre: string | null
+  descripcion: string | null
+  unidad: string
+  rendimiento: string | null
+  proveedor_id: string | null
+  proveedor_nombre: string | null
+  precio_unitario_bob: number | null
+  precio_unitario_usd: number | null
+  foto_url: string | null
+  stock_total: number
+  activo: boolean
+  ubicaciones: ItemUbicacion[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CategoriaItem {
+  id: string
+  nombre: string
+  descripcion: string | null
+  created_at?: string
+}
+
+export interface ProveedorItem {
+  id: string
+  nombre: string
+  telefono: string | null
+  created_at?: string
+}
+
+// Legacy types kept for backwards compatibility
 export interface InventoryItem {
   id: string
   nombre: string
