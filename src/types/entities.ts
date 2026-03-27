@@ -107,15 +107,18 @@ export interface CartItem {
 
 // ─── Almacenes ────────────────────────────────────────────────────────────────
 
+export type AlmacenTipo = 'fijo' | 'obra'
+export type AlmacenEstado = 'activo' | 'inactivo'
+
 export interface Almacen {
   id: string
   nombre: string
-  tipo: string
-  responsable: string
-  estado: 'ACTIVO' | 'INACTIVO'
+  tipo_almacen: AlmacenTipo
+  direccion: string | null
+  estado: AlmacenEstado
   items_count: number
-  obra?: string
-  border_color?: 'teal' | 'amber'
+  obra_id: string | null
+  obra_nombre: string | null
 }
 
 // ─── Préstamos ────────────────────────────────────────────────────────────────
@@ -218,24 +221,37 @@ export interface Sector {
 }
 
 export interface Departamento {
+  id: string
   letra: string
-  sector_id: string
+  nombre: string
+  sector_numero: number
 }
 
 export interface Piso {
   id: string
-  numero: string
+  numero: number
   nombre: string
   departamentos: Departamento[]
 }
 
+export interface SectorizacionArchivo {
+  id: string
+  nombre_original: string
+  nombre_archivo: string
+  url: string
+  mimetype: string
+  tamanio: number
+  created_at: string
+}
+
 export interface ObraSectorizacion {
   id: string
-  obraId: string
-  nombre_obra: string
+  obra_id: string
+  nombre_obra: string | null
   sectores: Sector[]
   pisos: Piso[]
-  estado: 'en_construccion' | 'completada'
+  archivos: SectorizacionArchivo[]
+  estado: 'activa' | 'desactivada'
   created_at: string
   updated_at: string
 }

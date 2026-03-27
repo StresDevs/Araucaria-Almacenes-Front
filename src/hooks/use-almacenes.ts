@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { almacenesService } from '@/services'
 import { HttpError } from '@/services'
-import type { Almacen, ItemCatalogo } from '@/types'
-import type { GetInventarioParams } from '@/services/endpoints/almacenes.service'
+import type { Almacen } from '@/types'
+import type { CreateAlmacenDto, UpdateAlmacenDto } from '@/services/endpoints/almacenes.service'
 
 interface UseAlmacenesState {
   almacenes: Almacen[]
@@ -34,51 +34,54 @@ export function useAlmacenes() {
     fetchAlmacenes()
   }, [fetchAlmacenes])
 
+  const createAlmacen = useCallback(async (dto: CreateAlmacenDto): Promise<boolean> => {
+    try {
+      await almacenesService.create(dto)
+      await fetchAlmacenes()
+      return true
+    } catch {
+      return false
+    }
+  }, [fetchAlmacenes])
+
+  const updateAlmacen = useCallback(async (id: string, dto: UpdateAlmacenDto): Promise<boolean> => {
+    try {
+      await almacenesService.update(id, dto)
+      await fetchAlmacenes()
+      return true
+    } catch {
+      return false
+    }
+  }, [fetchAlmacenes])
+
+  const toggleActive = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      await almacenesService.toggleActive(id)
+      await fetchAlmacenes()
+      return true
+    } catch {
+      return false
+    }
+  }, [fetchAlmacenes])
+
+  const deleteAlmacen = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      await almacenesService.delete(id)
+      await fetchAlmacenes()
+      return true
+    } catch {
+      return false
+    }
+  }, [fetchAlmacenes])
+
   return {
     almacenes: state.almacenes,
     isLoading: state.isLoading,
     error: state.error,
     refetch: fetchAlmacenes,
-  }
-}
-
-interface UseInventarioState {
-  items: ItemCatalogo[]
-  total: number
-  isLoading: boolean
-  error: string | null
-}
-
-export function useInventario(almacenId: string, params?: GetInventarioParams) {
-  const [state, setState] = useState<UseInventarioState>({
-    items: [],
-    total: 0,
-    isLoading: true,
-    error: null,
-  })
-
-  const fetchInventario = useCallback(async () => {
-    if (!almacenId) return
-    setState((prev: UseInventarioState) => ({ ...prev, isLoading: true, error: null }))
-    try {
-      const response = await almacenesService.getInventario(almacenId, params)
-      setState({ items: response.data, total: response.total, isLoading: false, error: null })
-    } catch (err) {
-      const message = err instanceof HttpError ? err.message : 'Error al cargar el inventario'
-      setState((prev: UseInventarioState) => ({ ...prev, isLoading: false, error: message }))
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [almacenId])
-
-  useEffect(() => {
-    fetchInventario()
-  }, [fetchInventario])
-
-  return {
-    items: state.items,
-    total: state.total,
-    isLoading: state.isLoading,
-    error: state.error,
-    refetch: fetchInventario,
+    createAlmacen,
+    updateAlmacen,
+    toggleActive,
+    deleteAlmacen,
   }
 }

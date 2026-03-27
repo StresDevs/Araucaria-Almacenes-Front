@@ -139,7 +139,7 @@ export default function TransferenciaPage() {
                   }`}
                 >
                   <p className="font-bold text-foreground">{almacen.nombre}</p>
-                  <p className="text-sm text-muted-foreground">{almacen.tipo}</p>
+                  <p className="text-sm text-muted-foreground">{almacen.tipo_almacen === 'fijo' ? 'Externo' : 'Obra'}</p>
                   <p className="text-xs text-muted-foreground mt-1">{almacen.items_count} ítems</p>
                 </button>
               ))}
@@ -239,7 +239,7 @@ export default function TransferenciaPage() {
                   }`}
                 >
                   <p className="font-bold text-foreground">{almacen.nombre}</p>
-                  <p className="text-sm text-muted-foreground">{almacen.tipo}</p>
+                  <p className="text-sm text-muted-foreground">{almacen.tipo_almacen === 'fijo' ? 'Externo' : 'Obra'}</p>
                 </button>
               ))}
             </div>
