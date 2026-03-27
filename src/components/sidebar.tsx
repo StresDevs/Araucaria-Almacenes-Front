@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
-import { X, BarChart3, Hammer, Warehouse, Package, FileText, LogOut, ChevronDown, ArrowLeftRight, Trash2, Grid3x3, Users } from 'lucide-react'
+import { X, BarChart3, Hammer, Warehouse, Package, FileText, LogOut, ChevronDown, ArrowLeftRight, Trash2, Grid3x3, Users, ShieldCheck } from 'lucide-react'
 import Image from 'next/image'
 import { useAuth } from '@/providers/auth-provider'
 
@@ -193,6 +193,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             <div className="my-2 border-t border-border" />
             <p className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Administración</p>
             <NavLink href="/usuarios" icon={Users} name="Gestión de Usuarios" />
+            <NavLink href="/aprobaciones" icon={ShieldCheck} name="Solicitud Aprobaciones" />
           </>
         )}
 

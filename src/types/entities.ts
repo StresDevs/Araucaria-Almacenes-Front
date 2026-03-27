@@ -337,3 +337,63 @@ export interface ObraSectorizacion {
   created_at: string
   updated_at: string
 }
+
+// ─── Solicitudes de Aprobación ────────────────────────────────────────────────
+
+export type TipoSolicitudAprobacion =
+  | 'baja_producto'
+  | 'edicion_stock'
+  | 'transferencia_atrasada'
+
+export type EstadoAprobacion = 'pendiente' | 'aprobada' | 'rechazada'
+
+export interface SolicitudAprobacion {
+  id: string
+  tipo: TipoSolicitudAprobacion
+  titulo: string
+  descripcion: string
+  solicitante: string
+  fecha_solicitud: string
+  estado: EstadoAprobacion
+  revisado_por?: string
+  fecha_revision?: string
+  // Data for baja
+  item_codigo?: string
+  item_descripcion?: string
+  item_cantidad?: number
+  motivo_baja?: string
+  evidencia_url?: string
+  // Data for stock edit
+  campo_editado?: string
+  valor_anterior?: string
+  valor_nuevo?: string
+  // Data for transfer
+  almacen_origen?: string
+  almacen_destino?: string
+  fecha_transferencia?: string
+  fecha_registro?: string
+  items_transferencia?: { codigo: string; descripcion: string; cantidad: number; unidad: string }[]
+}
+
+// ─── Bajas ────────────────────────────────────────────────────────────────────
+
+export type MotivoBaja = 'daño' | 'vencimiento' | 'robo' | 'perdida' | 'obsoleto' | 'defecto_fabrica' | 'otro'
+
+export interface SolicitudBaja {
+  id: string
+  item_id: string
+  item_codigo: string
+  item_descripcion: string
+  item_categoria: string
+  cantidad: number
+  motivo: MotivoBaja
+  descripcion_motivo: string
+  evidencia_url?: string
+  evidencia_nombre?: string
+  estado: EstadoAprobacion
+  solicitante: string
+  fecha_solicitud: string
+  revisado_por?: string
+  fecha_revision?: string
+  notas_revision?: string
+}
