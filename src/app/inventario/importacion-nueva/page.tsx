@@ -1,93 +1,73 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { AppShell } from '@/components/app-shell'
-import { Filter, ChevronDown, Plus } from 'lucide-react'
-import { AddItemModal, getItemImage } from '@/components/add-item-modal'
+import { Search, ChevronDown, Plus, Loader2 } from 'lucide-react'
+import { AddItemModal } from '@/components/add-item-modal'
+import { useInventario } from '@/hooks/use-inventario'
+import { useCategorias } from '@/hooks/use-categorias'
+import type { ItemInventario } from '@/types'
 
-type Categoria = 'Construcción' | 'Seguridad' | 'Equipo y Herramientas' | 'Todos'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? ''
 
-interface AlmacenUbicacion {
-  almacen: string
-  cantidad: number
+function getItemImage(item: ItemInventario): string {
+  if (item.foto_url) return `${API_BASE}${item.foto_url}`
+  const d = ((item.descripcion ?? '') + ' ' + item.codigo).toLowerCase()
+  if (d.includes('porcelanato') || d.includes('mosaico') || d.includes('cristal')) return '/items/porcelanato.jpg'
+  if (d.includes('puerta') || d.includes('door') || d.includes('flush')) return '/items/puerta.jpg'
+  if (d.includes('piso') || d.includes('laminado') || d.includes('underlayment')) return '/items/piso-laminado.jpg'
+  if (d.includes('extractor') || d.includes('encimera') || d.includes('horno') || d.includes('microonda')) return '/items/electrodomestico.jpg'
+  return '/items/material-general.jpg'
 }
-
-interface ItemInventario {
-  nro: number
-  item: string
-  codigo: string
-  descripcion: string
-  und: string
-  rendimiento: string
-  categoria: Categoria
-  stockTotal: number
-  ubicaciones: AlmacenUbicacion[]
-}
-
-const itemsIniciales: ItemInventario[] = [
-  { nro: 259, item: '9013', codigo: 'JQG9009X', descripcion: 'EXTRACTOR', und: 'pza', rendimiento: '', categoria: 'Equipo y Herramientas', stockTotal: 15, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 8 }, { almacen: 'Almacén Anaya', cantidad: 7 }] },
-  { nro: 260, item: '9014', codigo: 'GLG90506', descripcion: 'ENCIMERA COCINA', und: 'pza', rendimiento: '', categoria: 'Construcción', stockTotal: 12, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 5 }, { almacen: 'Almacén Anaya', cantidad: 7 }] },
-  { nro: 261, item: '9006', codigo: 'HW25800P-C2T', descripcion: 'MICROONDA', und: 'pza', rendimiento: '', categoria: 'Equipo y Herramientas', stockTotal: 8, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 8 }] },
-  { nro: 262, item: '9016', codigo: 'KSG7003AT', descripcion: 'HORNO ELECTRICO', und: 'pza', rendimiento: '', categoria: 'Equipo y Herramientas', stockTotal: 10, ubicaciones: [{ almacen: 'Almacén Anaya', cantidad: 10 }] },
-  { nro: 263, item: '9025', codigo: 'EIG76203', descripcion: 'ENCIMERA COCINA ELECTRICA', und: 'pza', rendimiento: '', categoria: 'Equipo y Herramientas', stockTotal: 6, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 3 }, { almacen: 'Almacén Anaya', cantidad: 3 }] },
-  { nro: 264, item: '9013', codigo: 'JQG9009X', descripcion: 'embellecedores extractores de cocina', und: 'pza', rendimiento: '', categoria: 'Construcción', stockTotal: 20, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 12 }, { almacen: 'Almacén Anaya', cantidad: 8 }] },
-  { nro: 265, item: '6130', codigo: 'YKL6000-B', descripcion: 'porcelanato 30x60 cocina - lav muro', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 45, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 25 }, { almacen: 'Almacén Anaya', cantidad: 20 }] },
-  { nro: 266, item: '6102', codigo: 'YPJ086S', descripcion: 'porcelanato 60x60 cocina - lav piso', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 38, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 18 }, { almacen: 'Almacén Anaya', cantidad: 20 }] },
-  { nro: 267, item: '6125', codigo: 'YC6A112B', descripcion: 'porcelanato 30x60', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 32, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 15 }, { almacen: 'Almacén Anaya', cantidad: 17 }] },
-  { nro: 268, item: '6042', codigo: 'YMCN1006', descripcion: 'cristal mosaico 30x30', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 28, ubicaciones: [{ almacen: 'Almacén Anaya', cantidad: 28 }] },
-  { nro: 269, item: '6110', codigo: 'K0633525TA', descripcion: 'porcelanato 60x60 ales ivory', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 50, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 30 }, { almacen: 'Almacén Anaya', cantidad: 20 }] },
-  { nro: 270, item: '6111', codigo: 'K0633525TA', descripcion: 'porcelanato 30x60 ales ivory', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 35, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 20 }, { almacen: 'Almacén Anaya', cantidad: 15 }] },
-  { nro: 271, item: '6105', codigo: 'K012266854tam', descripcion: 'porcelanato 1200x600 tiroll mat', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 22, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 12 }, { almacen: 'Almacén Anaya', cantidad: 10 }] },
-  { nro: 272, item: '6135', codigo: 'K012266854tam', descripcion: 'porcelanato 600x600 tiroll ash', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 19, ubicaciones: [{ almacen: 'Almacén Anaya', cantidad: 19 }] },
-  { nro: 273, item: '6118', codigo: 'K0603520TA', descripcion: 'porcelanato 60x60 CASSERO ASH', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 42, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 25 }, { almacen: 'Almacén Anaya', cantidad: 17 }] },
-  { nro: 274, item: '6069', codigo: 'K0633516DT', descripcion: 'Glaze Decor 300x600', und: 'caja', rendimiento: '', categoria: 'Construcción', stockTotal: 16, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 16 }] },
-  { nro: 275, item: '6124', codigo: 'YC6A112B', descripcion: 'porcelanato 60x60', und: 'caja', rendimiento: '1.44 m2', categoria: 'Construcción', stockTotal: 29, ubicaciones: [{ almacen: 'Almacén Anaya', cantidad: 29 }] },
-  { nro: 276, item: '6131', codigo: 'YLM2869', descripcion: 'piso laminado 12mm 1212x198', und: 'caja', rendimiento: '2.64 m2', categoria: 'Construcción', stockTotal: 24, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 14 }, { almacen: 'Almacén Anaya', cantidad: 10 }] },
-  { nro: 277, item: '6059', codigo: 'Underlayment EPE 3mm YFE4-3-4', descripcion: 'lámina niveladora de piso', und: 'rollo', rendimiento: '18.58 m2', categoria: 'Construcción', stockTotal: 11, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 6 }, { almacen: 'Almacén Anaya', cantidad: 5 }] },
-  { nro: 278, item: '2060', codigo: 'Aluminium Moulding', descripcion: 'moldura T 2700x20mm', und: 'pza', rendimiento: '2.7 m', categoria: 'Construcción', stockTotal: 18, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 10 }, { almacen: 'Almacén Anaya', cantidad: 8 }] },
-  { nro: 279, item: '10041', codigo: 'Flush Door Principal 2200x1000x150', descripcion: 'puerta 2200x1000 - derecha + marco', und: 'pza', rendimiento: '', categoria: 'Construcción', stockTotal: 7, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 4 }, { almacen: 'Almacén Anaya', cantidad: 3 }] },
-  { nro: 280, item: '10041', codigo: 'Flush Door Principal 2200x1000x150', descripcion: 'puerta 2200x1000 - izquierda + marco', und: 'pza', rendimiento: '', categoria: 'Construcción', stockTotal: 7, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 3 }, { almacen: 'Almacén Anaya', cantidad: 4 }] },
-  { nro: 281, item: '10042', codigo: 'Flush Door Int Bedrooms 2200x900x150', descripcion: 'puerta 2200x900 dormitorio - derecha + marco', und: 'pza', rendimiento: '', categoria: 'Construcción', stockTotal: 9, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 5 }, { almacen: 'Almacén Anaya', cantidad: 4 }] },
-  { nro: 282, item: '10042', codigo: 'Flush Door Int Bedrooms 2200x900x150', descripcion: 'puerta 2200x900 dormitorio - izquierda + marco', und: 'pza', rendimiento: '', categoria: 'Construcción', stockTotal: 9, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 4 }, { almacen: 'Almacén Anaya', cantidad: 5 }] },
-  { nro: 283, item: '10043', codigo: 'Flush Door Int Bathrooms 2200x800x150', descripcion: 'puerta 2200x800 baño - derecha + marco', und: 'pza', rendimiento: '', categoria: 'Construcción', stockTotal: 8, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 4 }, { almacen: 'Almacén Anaya', cantidad: 4 }] },
-  { nro: 284, item: '10043', codigo: 'Flush Door Int Bathrooms 2200x800x150', descripcion: 'puerta 2200x800 baño - izquierda + marco', und: 'pza', rendimiento: '', categoria: 'Construcción', stockTotal: 8, ubicaciones: [{ almacen: 'Almacén Central', cantidad: 5 }, { almacen: 'Almacén Anaya', cantidad: 3 }] },
-]
-
-const categorias: Categoria[] = ['Todos', 'Construcción', 'Seguridad', 'Equipo y Herramientas']
 
 export default function ImportacionNuevaPage() {
-  const [items, setItems] = useState<ItemInventario[]>(itemsIniciales)
-  const [selectedCategoria, setSelectedCategoria] = useState<Categoria>('Todos')
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const { items, isLoading, error, createItem } = useInventario('importacion_nueva')
+  const { categorias } = useCategorias()
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedCategoria, setSelectedCategoria] = useState('')
+  const [selectedAlmacen, setSelectedAlmacen] = useState('')
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [modalOpen, setModalOpen] = useState(false)
 
-  const itemsFiltrados = selectedCategoria === 'Todos'
-    ? items
-    : items.filter(item => item.categoria === selectedCategoria)
+  const almacenesUnicos = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of items) {
+      for (const ub of item.ubicaciones) {
+        if (ub.almacen_nombre) map.set(ub.almacen_id, ub.almacen_nombre)
+      }
+    }
+    return Array.from(map, ([id, nombre]) => ({ id, nombre }))
+  }, [items])
 
-  const toggleRow = (nro: number) => {
-    setExpandedRows(prev => {
+  const itemsFiltrados = useMemo(() => {
+    const term = searchTerm.toLowerCase()
+    return items.filter((item) => {
+      if (selectedCategoria && item.categoria_nombre !== selectedCategoria) return false
+      if (selectedAlmacen && !item.ubicaciones.some((ub) => ub.almacen_id === selectedAlmacen)) return false
+      if (term) {
+        const matchesSearch =
+          item.codigo.toLowerCase().includes(term) ||
+          (item.item_numero ?? '').toLowerCase().includes(term) ||
+          (item.descripcion ?? '').toLowerCase().includes(term)
+        if (!matchesSearch) return false
+      }
+      return true
+    })
+  }, [items, searchTerm, selectedCategoria, selectedAlmacen])
+
+  const toggleRow = (id: string) => {
+    setExpandedRows((prev) => {
       const next = new Set(prev)
-      next.has(nro) ? next.delete(nro) : next.add(nro)
+      next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
   }
 
-  const handleAddItem = (form: { codigo: string; descripcion: string; und: string; rendimiento: string; categoria: string; stockTotal: string }) => {
-    const newNro = Math.max(...items.map(i => i.nro)) + 1
-    const newItem: ItemInventario = {
-      nro: newNro,
-      item: String(newNro),
-      codigo: form.codigo,
-      descripcion: form.descripcion,
-      und: form.und,
-      rendimiento: form.rendimiento,
-      categoria: form.categoria as Categoria,
-      stockTotal: parseInt(form.stockTotal) || 0,
-      ubicaciones: [],
-    }
-    setItems(prev => [...prev, newItem])
+  const handleAddItem = async (dto: Parameters<typeof createItem>[0]) => {
+    return createItem(dto)
   }
+
+  const hasFilters = searchTerm || selectedCategoria || selectedAlmacen
 
   return (
     <AppShell>
@@ -96,7 +76,7 @@ export default function ImportacionNuevaPage() {
         <div className="flex items-start sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground text-balance">Ítems Importación Nueva</h1>
-            <p className="text-muted-foreground mt-1 text-sm sm:text-base">Almacén Anaya — {items.length} ítems registrados</p>
+            <p className="text-muted-foreground mt-1 text-sm sm:text-base">{items.length} ítems registrados</p>
           </div>
           <button
             onClick={() => setModalOpen(true)}
@@ -108,103 +88,142 @@ export default function ImportacionNuevaPage() {
           </button>
         </div>
 
-        {/* Filtro de Categoría */}
-        <div className="flex items-start sm:items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 shrink-0">
-            <Filter className="w-4 h-4 text-accent" />
-            <span className="text-sm font-medium text-foreground">Categoría:</span>
+        {/* Filtros */}
+        <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Buscar por código, ítem n° o descripción..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+            />
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {categorias.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategoria(cat)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  selectedCategoria === cat
-                    ? 'bg-accent text-white'
-                    : 'bg-border text-foreground hover:bg-border/80'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <select
+              value={selectedCategoria}
+              onChange={(e) => setSelectedCategoria(e.target.value)}
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+            >
+              <option value="">Todas las categorías</option>
+              {categorias.map((cat) => (
+                <option key={cat.id} value={cat.nombre}>{cat.nombre}</option>
+              ))}
+            </select>
+            <select
+              value={selectedAlmacen}
+              onChange={(e) => setSelectedAlmacen(e.target.value)}
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+            >
+              <option value="">Todos los almacenes</option>
+              {almacenesUnicos.map((alm) => (
+                <option key={alm.id} value={alm.id}>{alm.nombre}</option>
+              ))}
+            </select>
           </div>
+          {hasFilters && (
+            <button
+              onClick={() => { setSearchTerm(''); setSelectedCategoria(''); setSelectedAlmacen('') }}
+              className="text-xs text-accent hover:underline"
+            >
+              Limpiar filtros
+            </button>
+          )}
         </div>
 
+        {/* Loading / Error */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span>Cargando inventario...</span>
+          </div>
+        )}
+        {error && (
+          <div className="bg-red-900/20 border border-red-500/30 text-red-400 rounded-lg p-4 text-sm">{error}</div>
+        )}
+
         {/* Table */}
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[560px]">
-              <thead>
-                <tr className="bg-muted/50 border-b border-border">
-                  <th className="px-3 py-3 text-left font-semibold text-foreground hidden sm:table-cell">n°</th>
-                  <th className="px-3 py-3 text-left font-semibold text-foreground">Ítem</th>
-                  <th className="px-3 py-3 text-left font-semibold text-foreground">Descripción</th>
-                  <th className="px-3 py-3 text-left font-semibold text-foreground hidden md:table-cell">Categoría</th>
-                  <th className="px-3 py-3 text-left font-semibold text-foreground">Und</th>
-                  <th className="px-3 py-3 text-left font-semibold text-foreground">Stock</th>
-                  <th className="px-3 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Rendimiento</th>
-                  <th className="px-3 py-3 text-center font-semibold text-foreground">Ubic.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {itemsFiltrados.map((item) => (
-                  <React.Fragment key={item.nro}>
-                    <tr className="border-b border-border hover:bg-muted/30 transition-colors">
-                      <td className="px-3 py-3 text-foreground hidden sm:table-cell">{item.nro}</td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <img
-                            src={getItemImage(item.descripcion, item.codigo)}
-                            alt={item.descripcion}
-                            className="w-9 h-9 rounded-lg object-cover shrink-0 border border-border"
-                          />
-                          <span className="font-medium text-foreground text-xs sm:text-sm">{item.item}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-foreground text-xs sm:text-sm max-w-[180px] truncate">{item.descripcion}</td>
-                      <td className="px-3 py-3 hidden md:table-cell">
-                        <span className="inline-block px-2 py-0.5 rounded text-xs bg-muted text-foreground">{item.categoria}</span>
-                      </td>
-                      <td className="px-3 py-3 text-foreground text-xs">{item.und}</td>
-                      <td className="px-3 py-3 font-bold text-accent text-sm">{item.stockTotal}</td>
-                      <td className="px-3 py-3 text-foreground text-xs hidden lg:table-cell">{item.rendimiento}</td>
-                      <td className="px-3 py-3 text-center">
-                        <button
-                          onClick={() => toggleRow(item.nro)}
-                          className="inline-flex items-center px-2 py-1 rounded bg-border hover:bg-border/80 transition-colors"
-                        >
-                          <ChevronDown className={`w-3.5 h-3.5 text-foreground transition-transform ${expandedRows.has(item.nro) ? 'rotate-180' : ''}`} />
-                        </button>
-                      </td>
-                    </tr>
-                    {expandedRows.has(item.nro) && (
-                      <tr className="bg-muted/20 border-b border-border">
-                        <td colSpan={9} className="px-3 py-3">
-                          <div className="space-y-2">
-                            <p className="font-semibold text-foreground text-sm mb-2">Ubicación en almacenes:</p>
-                            {item.ubicaciones.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">Sin ubicaciones registradas.</p>
-                            ) : (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {item.ubicaciones.map((ub, idx) => (
-                                  <div key={idx} className="flex items-center justify-between bg-card border border-border rounded-lg p-3">
-                                    <span className="text-foreground font-medium text-sm">{ub.almacen}</span>
-                                    <span className="px-3 py-1 rounded bg-accent/20 text-accent font-bold text-sm">{ub.cantidad} {item.und}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+        {!isLoading && !error && (
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[560px]">
+                <thead>
+                  <tr className="bg-muted/50 border-b border-border">
+                    <th className="px-3 py-3 text-left font-semibold text-foreground hidden sm:table-cell">n°</th>
+                    <th className="px-3 py-3 text-left font-semibold text-foreground">Ítem</th>
+                    <th className="px-3 py-3 text-left font-semibold text-foreground">Descripción</th>
+                    <th className="px-3 py-3 text-left font-semibold text-foreground hidden md:table-cell">Categoría</th>
+                    <th className="px-3 py-3 text-left font-semibold text-foreground">Und</th>
+                    <th className="px-3 py-3 text-left font-semibold text-foreground">Stock</th>
+                    <th className="px-3 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Rendimiento</th>
+                    <th className="px-3 py-3 text-center font-semibold text-foreground">Ubic.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemsFiltrados.map((item, idx) => (
+                    <React.Fragment key={item.id}>
+                      <tr className="border-b border-border hover:bg-muted/30 transition-colors">
+                        <td className="px-3 py-3 text-foreground hidden sm:table-cell">{idx + 1}</td>
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <img
+                              src={getItemImage(item)}
+                              alt={item.descripcion ?? item.codigo}
+                              className="w-9 h-9 rounded-lg object-cover shrink-0 border border-border"
+                            />
+                            <span className="font-medium text-foreground text-xs sm:text-sm">{item.item_numero ?? item.codigo}</span>
                           </div>
                         </td>
+                        <td className="px-3 py-3 text-foreground text-xs sm:text-sm max-w-[180px] truncate">{item.descripcion ?? '—'}</td>
+                        <td className="px-3 py-3 hidden md:table-cell">
+                          <span className="inline-block px-2 py-0.5 rounded text-xs bg-muted text-foreground">{item.categoria_nombre ?? '—'}</span>
+                        </td>
+                        <td className="px-3 py-3 text-foreground text-xs">{item.unidad}</td>
+                        <td className="px-3 py-3 font-bold text-accent text-sm">{item.stock_total}</td>
+                        <td className="px-3 py-3 text-foreground text-xs hidden lg:table-cell">{item.rendimiento ?? ''}</td>
+                        <td className="px-3 py-3 text-center">
+                          <button
+                            onClick={() => toggleRow(item.id)}
+                            className="inline-flex items-center px-2 py-1 rounded bg-border hover:bg-border/80 transition-colors"
+                          >
+                            <ChevronDown className={`w-3.5 h-3.5 text-foreground transition-transform ${expandedRows.has(item.id) ? 'rotate-180' : ''}`} />
+                          </button>
+                        </td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
+                      {expandedRows.has(item.id) && (
+                        <tr className="bg-muted/20 border-b border-border">
+                          <td colSpan={9} className="px-3 py-3">
+                            <div className="space-y-2">
+                              <p className="font-semibold text-foreground text-sm mb-2">Ubicación en almacenes:</p>
+                              {item.ubicaciones.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">Sin ubicaciones registradas.</p>
+                              ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {item.ubicaciones.map((ub) => (
+                                    <div key={ub.almacen_id} className="flex items-center justify-between bg-card border border-border rounded-lg p-3">
+                                      <span className="text-foreground font-medium text-sm">{ub.almacen_nombre ?? 'Almacén'}</span>
+                                      <span className="px-3 py-1 rounded bg-accent/20 text-accent font-bold text-sm">{ub.cantidad} {item.unidad}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                  {itemsFiltrados.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">No se encontraron ítems.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <AddItemModal
@@ -212,6 +231,7 @@ export default function ImportacionNuevaPage() {
         onClose={() => setModalOpen(false)}
         onAdd={handleAddItem}
         inventoryType="nueva"
+        categorias={categorias}
       />
     </AppShell>
   )

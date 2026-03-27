@@ -1,5 +1,44 @@
 // Core domain entities for the Araucaria Almacenes system
 
+// ─── Auth & Usuarios ─────────────────────────────────────────────────────────
+
+export type UserRole = 'administrador' | 'supervisor_almacen' | 'lectura'
+
+export interface AuthUser {
+  id: string
+  nombre: string
+  email: string
+  rol: UserRole
+  debeCambiarPassword: boolean
+}
+
+export interface LoginResponse {
+  token: string
+  user: AuthUser
+}
+
+export interface UserListItem {
+  id: string
+  nombre: string
+  nombres: string
+  primerApellido: string
+  segundoApellido: string | null
+  email: string
+  telefono: string | null
+  rol: UserRole
+  activo: boolean
+  debeCambiarPassword: boolean
+  createdAt: string
+}
+
+export interface CreateUserResponse {
+  id: string
+  nombre: string
+  email: string
+  rol: UserRole
+  temporaryPassword: string
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
 export interface MetricCard {
@@ -25,15 +64,61 @@ export interface ObraItem {
   id: string
   nombre: string
   estado: 'activa' | 'finalizada'
-  ubicacion: string
+  ubicacion: string | null
   fecha_inicio: string
-  fecha_fin?: string
-  responsable: string
+  fecha_fin?: string | null
+  responsable: string | null
   items_total: number
 }
 
 // ─── Inventario ───────────────────────────────────────────────────────────────
 
+export type ItemOrigen = 'importacion_nueva' | 'importacion_antigua' | 'compra_nacional'
+
+export interface ItemUbicacion {
+  almacen_id: string
+  almacen_nombre: string | null
+  cantidad: number
+}
+
+export interface ItemInventario {
+  id: string
+  tipo_origen: ItemOrigen
+  categoria_id: string | null
+  categoria_nombre: string | null
+  item_numero: string | null
+  codigo: string
+  nombre: string | null
+  descripcion: string | null
+  unidad: string
+  rendimiento: string | null
+  proveedor_id: string | null
+  proveedor_nombre: string | null
+  precio_unitario_bob: number | null
+  precio_unitario_usd: number | null
+  foto_url: string | null
+  stock_total: number
+  activo: boolean
+  ubicaciones: ItemUbicacion[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CategoriaItem {
+  id: string
+  nombre: string
+  descripcion: string | null
+  created_at?: string
+}
+
+export interface ProveedorItem {
+  id: string
+  nombre: string
+  telefono: string | null
+  created_at?: string
+}
+
+// Legacy types kept for backwards compatibility
 export interface InventoryItem {
   id: string
   nombre: string
@@ -69,15 +154,18 @@ export interface CartItem {
 
 // ─── Almacenes ────────────────────────────────────────────────────────────────
 
+export type AlmacenTipo = 'fijo' | 'obra'
+export type AlmacenEstado = 'activo' | 'inactivo'
+
 export interface Almacen {
   id: string
   nombre: string
-  tipo: string
-  responsable: string
-  estado: 'ACTIVO' | 'INACTIVO'
+  tipo_almacen: AlmacenTipo
+  direccion: string | null
+  estado: AlmacenEstado
   items_count: number
-  obra?: string
-  border_color?: 'teal' | 'amber'
+  obra_id: string | null
+  obra_nombre: string | null
 }
 
 // ─── Préstamos ────────────────────────────────────────────────────────────────
@@ -215,24 +303,37 @@ export interface Sector {
 }
 
 export interface Departamento {
+  id: string
   letra: string
-  sector_id: string
+  nombre: string
+  sector_numero: number
 }
 
 export interface Piso {
   id: string
-  numero: string
+  numero: number
   nombre: string
   departamentos: Departamento[]
 }
 
+export interface SectorizacionArchivo {
+  id: string
+  nombre_original: string
+  nombre_archivo: string
+  url: string
+  mimetype: string
+  tamanio: number
+  created_at: string
+}
+
 export interface ObraSectorizacion {
   id: string
-  obraId: string
-  nombre_obra: string
+  obra_id: string
+  nombre_obra: string | null
   sectores: Sector[]
   pisos: Piso[]
-  estado: 'en_construccion' | 'completada'
+  archivos: SectorizacionArchivo[]
+  estado: 'activa' | 'desactivada'
   created_at: string
   updated_at: string
 }

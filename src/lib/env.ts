@@ -16,11 +16,11 @@ function optionalEnv(key: string, fallback: string): string {
 }
 
 export const env = {
-  /** Base URL of the backend API, e.g. http://localhost:3001/api */
-  apiUrl: optionalEnv('NEXT_PUBLIC_API_URL', ''),
+  /** Base URL of the backend API, e.g. http://localhost:3000/api */
+  apiUrl: process.env.NEXT_PUBLIC_API_URL ?? '',
 
-  appName: optionalEnv('NEXT_PUBLIC_APP_NAME', 'Araucaria Almacenes'),
-  appVersion: optionalEnv('NEXT_PUBLIC_APP_VERSION', '0.1.0'),
+  appName: process.env.NEXT_PUBLIC_APP_NAME ?? 'Araucaria Almacenes',
+  appVersion: process.env.NEXT_PUBLIC_APP_VERSION ?? '0.1.0',
 
   isDevelopment: process.env.NODE_ENV === 'development',
   isProduction: process.env.NODE_ENV === 'production',

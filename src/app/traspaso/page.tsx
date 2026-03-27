@@ -19,7 +19,7 @@ export default function TraspasoPage() {
   const [isConfirmed, setIsConfirmed] = useState(false)
 
   // Get obra warehouses
-  const obraWarehouses = MOCK_ALMACENES_OBRA.filter(w => w.obra === selectedObra)
+  const obraWarehouses = MOCK_ALMACENES_OBRA.filter(w => w.obra_nombre === selectedObra)
 
   // Mock inventory items in obra warehouses
   const obraItems = [
@@ -120,8 +120,8 @@ export default function TraspasoPage() {
                       onChange={(e) => setSelectedObra(e.target.value)}
                       className="w-full px-4 py-3 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                     >
-                      {Array.from(new Set(MOCK_ALMACENES_OBRA.map(w => w.obra))).map(obra => (
-                        <option key={obra} value={obra}>{obra}</option>
+                      {Array.from(new Set(MOCK_ALMACENES_OBRA.map(w => w.obra_nombre))).filter(Boolean).map(obra => (
+                        <option key={obra} value={obra!}>{obra}</option>
                       ))}
                     </select>
                   </div>
@@ -134,7 +134,7 @@ export default function TraspasoPage() {
                         <div className="flex justify-between items-start mb-3">
                           <div>
                             <p className="font-medium text-foreground">{warehouse.nombre}</p>
-                            <p className="text-xs text-muted-foreground">{warehouse.tipo}</p>
+                            <p className="text-xs text-muted-foreground">{warehouse.tipo_almacen === 'fijo' ? 'Externo' : 'Obra'}</p>
                           </div>
                           <span className="text-xs bg-border px-2 py-1 rounded text-foreground font-mono">{warehouse.items_count} ítems</span>
                         </div>

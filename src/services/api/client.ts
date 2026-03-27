@@ -39,8 +39,10 @@ async function request<TResponse, TBody = unknown>(
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeout)
 
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
+
   const requestHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...headers,
   }
 
@@ -54,7 +56,7 @@ async function request<TResponse, TBody = unknown>(
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method,
       headers: requestHeaders,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body !== undefined ? (isFormData ? (body as BodyInit) : JSON.stringify(body)) : undefined,
       signal: controller.signal,
     })
 
@@ -66,6 +68,14 @@ async function request<TResponse, TBody = unknown>(
         statusCode: response.status,
         success: false,
       }))
+
+      // Si el token expiró o es inválido, limpiar sesión y redirigir a login
+      if (response.status === 401 && typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('auth_user')
+        window.location.href = '/login'
+      }
+
       throw new HttpError(
         response.status,
         errorBody.message,

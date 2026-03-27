@@ -3,8 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
-import { X, BarChart3, Hammer, Warehouse, Package, FileText, LogOut, ChevronDown, ArrowLeftRight, Trash2, Grid3x3 } from 'lucide-react'
+import { X, BarChart3, Hammer, Warehouse, Package, FileText, LogOut, ChevronDown, ArrowLeftRight, Trash2, Grid3x3, Users } from 'lucide-react'
 import Image from 'next/image'
+import { useAuth } from '@/providers/auth-provider'
 
 interface SidebarProps {
   isOpen: boolean
@@ -13,6 +14,7 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname()
+  const { user: currentUser, logout } = useAuth()
   const [inventarioOpen, setInventarioOpen] = useState(false)
   const [transferenciaOpen, setTransferenciaOpen] = useState(false)
   const [reportesOpen, setReportesOpen] = useState(false)
@@ -185,6 +187,15 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           )}
         </div>
 
+        {/* Gestión de Usuarios — solo admin */}
+        {currentUser?.rol === 'administrador' && (
+          <>
+            <div className="my-2 border-t border-border" />
+            <p className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Administración</p>
+            <NavLink href="/usuarios" icon={Users} name="Gestión de Usuarios" />
+          </>
+        )}
+
         {/* Transferencia Dropdown */}
         <div>
           <button
@@ -223,17 +234,26 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
       </nav>
 
-      {/* User Info */}
-      <div className="p-3 border-t border-border">
+      {/* User Info + Logout */}
+      <div className="p-3 border-t border-border space-y-2">
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-border/30">
           <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-bold text-accent">UA</span>
+            <span className="text-xs font-bold text-accent">
+              {currentUser?.nombre?.split(' ').slice(0, 2).map(n => n[0]).join('') || 'U'}
+            </span>
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">Usuario Admin</p>
-            <p className="text-xs text-muted-foreground">Sesión activa</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground truncate">{currentUser?.nombre || 'Usuario'}</p>
+            <p className="text-xs text-muted-foreground truncate">{currentUser?.email || 'Sesión activa'}</p>
           </div>
         </div>
+        <button
+          onClick={() => { logout(); onClose() }}
+          className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+        >
+          <LogOut className="w-4 h-4 flex-shrink-0" />
+          <span>Cerrar Sesión</span>
+        </button>
       </div>
     </div>
   )

@@ -43,9 +43,19 @@ export function useObras() {
     }
   }, [fetchObras])
 
-  const closeObra = useCallback(async (dto: CloseObraDto): Promise<boolean> => {
+  const closeObra = useCallback(async (obraId: string, dto?: CloseObraDto): Promise<boolean> => {
     try {
-      await obrasService.close(dto)
+      await obrasService.close(obraId, dto)
+      await fetchObras()
+      return true
+    } catch {
+      return false
+    }
+  }, [fetchObras])
+
+  const deleteObra = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      await obrasService.delete(id)
       await fetchObras()
       return true
     } catch {
@@ -60,5 +70,6 @@ export function useObras() {
     refetch: fetchObras,
     createObra,
     closeObra,
+    deleteObra,
   }
 }

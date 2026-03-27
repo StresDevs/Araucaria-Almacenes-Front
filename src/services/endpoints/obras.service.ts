@@ -1,22 +1,28 @@
 import { apiClient } from '@/services/api/client'
-import type { ApiPaginatedResponse, ApiResponse } from '@/types/api'
+import type { ApiResponse } from '@/types/api'
 import type { ObraItem } from '@/types/entities'
 
 export interface CreateObraDto {
   nombre: string
-  ubicacion: string
-  responsable: string
-  fecha_inicio: string
+  ubicacion?: string
+  responsable?: string
+  fechaInicio: string
+}
+
+export interface UpdateObraDto {
+  nombre?: string
+  ubicacion?: string
+  responsable?: string
+  fechaInicio?: string
 }
 
 export interface CloseObraDto {
-  obraId: string
-  fecha_fin: string
+  fechaFin?: string
   observaciones?: string
 }
 
 export const obrasService = {
-  getAll(): Promise<ApiPaginatedResponse<ObraItem>> {
+  getAll(): Promise<ApiResponse<ObraItem[]>> {
     return apiClient.get('/obras')
   },
 
@@ -28,8 +34,12 @@ export const obrasService = {
     return apiClient.post('/obras', dto)
   },
 
-  close(dto: CloseObraDto): Promise<ApiResponse<ObraItem>> {
-    return apiClient.patch(`/obras/${dto.obraId}/close`, dto)
+  update(id: string, dto: UpdateObraDto): Promise<ApiResponse<ObraItem>> {
+    return apiClient.patch(`/obras/${id}`, dto)
+  },
+
+  close(id: string, dto?: CloseObraDto): Promise<ApiResponse<ObraItem>> {
+    return apiClient.patch(`/obras/${id}/close`, dto ?? {})
   },
 
   delete(id: string): Promise<ApiResponse<void>> {

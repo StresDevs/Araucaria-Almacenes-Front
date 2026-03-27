@@ -1,6 +1,6 @@
 'use client'
 
-import { ObraItem } from '@/lib/constants'
+import type { ObraItem } from '@/types'
 import { Calendar, MapPin, User, Package, ChevronRight } from 'lucide-react'
 
 interface ObraCardProps {
@@ -28,10 +28,12 @@ export function ObraCard({ obra, onClose }: ObraCardProps) {
 
         {/* Details Grid */}
         <div className="space-y-3 text-sm mb-4">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <MapPin className="w-4 h-4 text-accent" />
-            <span className="truncate">{obra.ubicacion}</span>
-          </div>
+          {obra.ubicacion && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <MapPin className="w-4 h-4 text-accent" />
+              <span className="truncate">{obra.ubicacion}</span>
+            </div>
+          )}
           <div className="flex items-center gap-2 text-muted-foreground">
             <Calendar className="w-4 h-4 text-accent" />
             <span>
@@ -39,10 +41,12 @@ export function ObraCard({ obra, onClose }: ObraCardProps) {
               {obra.fecha_fin && ` - ${new Date(obra.fecha_fin).toLocaleDateString()}`}
             </span>
           </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <User className="w-4 h-4 text-accent" />
-            <span>{obra.responsable}</span>
-          </div>
+          {obra.responsable && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <User className="w-4 h-4 text-accent" />
+              <span>{obra.responsable}</span>
+            </div>
+          )}
           <div className="flex items-center gap-2 text-muted-foreground">
             <Package className="w-4 h-4 text-accent" />
             <span>{obra.items_total} ítems</span>
