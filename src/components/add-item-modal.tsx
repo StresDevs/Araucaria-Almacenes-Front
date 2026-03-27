@@ -123,7 +123,7 @@ function parseOCRText(raw: string, setForm: React.Dispatch<React.SetStateAction<
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-import type { CategoriaItem, ProveedorItem, ItemOrigen } from '@/types'
+import type { CategoriaItem, ProveedorItem, ItemOrigen, Almacen } from '@/types'
 import type { CreateItemDto } from '@/services/endpoints/inventario.service'
 import { inventarioService } from '@/services/endpoints/inventario.service'
 
@@ -134,6 +134,7 @@ interface AddItemModalProps {
   inventoryType: 'nueva' | 'antigua' | 'nacional'
   categorias?: CategoriaItem[]
   proveedores?: ProveedorItem[]
+  almacenes?: Almacen[]
 }
 
 const TIPO_ORIGEN_MAP: Record<string, ItemOrigen> = {
@@ -143,6 +144,12 @@ const TIPO_ORIGEN_MAP: Record<string, ItemOrigen> = {
 }
 
 const TIPO_CAMBIO = 6.96
+
+const UNIDADES_PREDEFINIDAS = [
+  'pza', 'caja', 'm²', 'm', 'ml', 'kg', 'lt', 'rollo', 'bolsa',
+  'unidad', 'placa', 'tubo', 'par', 'juego', 'galón', 'balde',
+  'plancha', 'metro', 'global', 'set', 'sobre', 'saco', 'barra',
+]
 
 interface AddItemForm {
   codigo: string
@@ -155,6 +162,8 @@ interface AddItemForm {
   precioUnitarioBob: string
   precioUnitarioUsd: string
   itemNumero: string
+  almacenId: string
+  stockInicial: string
 }
 
 const EMPTY_FORM: AddItemForm = {
@@ -168,6 +177,8 @@ const EMPTY_FORM: AddItemForm = {
   precioUnitarioBob: '',
   precioUnitarioUsd: '',
   itemNumero: '',
+  almacenId: '',
+  stockInicial: '',
 }
 
 // ─── Image helper ─────────────────────────────────────────────────────────────
@@ -181,7 +192,7 @@ export function getItemImage(descripcion: string, codigo: string): string {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias = [], proveedores = [] }: AddItemModalProps) {
+export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias = [], proveedores = [], almacenes = [] }: AddItemModalProps) {
   const [form, setForm] = useState<AddItemForm>(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
   const [scanning, setScanning] = useState(false)
@@ -257,6 +268,14 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
   const [catOpen, setCatOpen] = useState(false)
   const catRef = useRef<HTMLDivElement>(null)
 
+  // ─── Unit combobox state ───────────────────────────────────────────────────
+  const [undOpen, setUndOpen] = useState(false)
+  const undRef = useRef<HTMLDivElement>(null)
+
+  const filteredUnidades = form.und
+    ? UNIDADES_PREDEFINIDAS.filter((u) => u.toLowerCase().includes(form.und.toLowerCase()))
+    : UNIDADES_PREDEFINIDAS
+
   const filteredCategorias = catSearch
     ? categorias.filter((c) => c.nombre.toLowerCase().includes(catSearch.toLowerCase()))
     : categorias
@@ -266,6 +285,7 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (catRef.current && !catRef.current.contains(e.target as Node)) setCatOpen(false)
+      if (undRef.current && !undRef.current.contains(e.target as Node)) setUndOpen(false)
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -345,6 +365,7 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
     setSyncConversion(false)
     setCatSearch('')
     setCatOpen(false)
+    setUndOpen(false)
     onClose()
   }
 
@@ -364,6 +385,7 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
       ...(form.itemNumero && { itemNumero: form.itemNumero }),
       ...(form.precioUnitarioBob && { precioUnitarioBob: parseFloat(form.precioUnitarioBob) }),
       ...(form.precioUnitarioUsd && { precioUnitarioUsd: parseFloat(form.precioUnitarioUsd) }),
+      ...(form.stockInicial && form.almacenId && { stockInicial: parseInt(form.stockInicial, 10), almacenId: form.almacenId }),
     }
     const ok = await onAdd(dto)
     setSubmitting(false)
@@ -496,15 +518,34 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
               />
             </div>
 
-            <div>
+            <div ref={undRef}>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Unidad *</label>
-              <input
-                value={form.und}
-                onChange={(e) => setForm((p) => ({ ...p, und: e.target.value }))}
-                placeholder="pza, caja, m2..."
-                required
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
-              />
+              <div className="relative">
+                <input
+                  value={form.und}
+                  onChange={(e) => { setForm((p) => ({ ...p, und: e.target.value })); setUndOpen(true) }}
+                  onFocus={() => setUndOpen(true)}
+                  placeholder="pza, caja, m²..."
+                  required
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                {undOpen && filteredUnidades.length > 0 && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg max-h-36 overflow-y-auto">
+                    {filteredUnidades.map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => { setForm((p) => ({ ...p, und: u })); setUndOpen(false) }}
+                        className={`w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors ${
+                          form.und === u ? 'bg-accent/10 text-accent font-medium' : 'text-foreground'
+                        }`}
+                      >
+                        {u}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {inventoryType === 'nueva' && (
@@ -609,6 +650,33 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
                 </select>
               </div>
             )}
+
+            {/* Stock inicial — solo al crear */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Stock Inicial (opcional)</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <select
+                  value={form.almacenId}
+                  onChange={(e) => setForm((p) => ({ ...p, almacenId: e.target.value }))}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+                >
+                  <option value="">Seleccionar almacén</option>
+                  {almacenes.filter((a) => a.estado === 'activo').map((alm) => (
+                    <option key={alm.id} value={alm.id}>{alm.nombre}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={form.stockInicial}
+                  onChange={(e) => setForm((p) => ({ ...p, stockInicial: e.target.value }))}
+                  placeholder="Cantidad"
+                  disabled={!form.almacenId}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                />
+              </div>
+            </div>
 
             <div className="sm:col-span-2 space-y-3">
               <div>

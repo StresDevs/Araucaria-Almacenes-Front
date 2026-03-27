@@ -2,21 +2,27 @@
 
 import React, { useState, useMemo } from 'react'
 import { AppShell } from '@/components/app-shell'
-import { Search, ChevronDown, Plus, Loader2 } from 'lucide-react'
+import { Search, ChevronDown, Plus, Loader2, PackagePlus, Trash2 } from 'lucide-react'
 import { AddItemModal } from '@/components/add-item-modal'
+import { StockEntryModal } from '@/components/stock-entry-modal'
 import { useInventario } from '@/hooks/use-inventario'
 import { useCategorias } from '@/hooks/use-categorias'
 import { useProveedores } from '@/hooks/use-proveedores'
+import { useAlmacenes } from '@/hooks/use-almacenes'
+import type { ItemInventario } from '@/types'
 
 export default function ComprasNacionalesPage() {
-  const { items, isLoading, error, createItem } = useInventario('compra_nacional')
+  const { items, isLoading, error, createItem, deleteItem, createEntradaStock } = useInventario('compra_nacional')
   const { categorias } = useCategorias()
   const { proveedores } = useProveedores()
+  const { almacenes } = useAlmacenes()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategoria, setSelectedCategoria] = useState('')
   const [selectedAlmacen, setSelectedAlmacen] = useState('')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [modalOpen, setModalOpen] = useState(false)
+  const [stockEntryItem, setStockEntryItem] = useState<ItemInventario | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const almacenesUnicos = useMemo(() => {
     const map = new Map<string, string>()
@@ -55,6 +61,17 @@ export default function ComprasNacionalesPage() {
 
   const handleAddItem = async (dto: Parameters<typeof createItem>[0]) => {
     return createItem(dto)
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar este ítem?')) return
+    setDeletingId(id)
+    await deleteItem(id)
+    setDeletingId(null)
+  }
+
+  const handleStockEntry = async (itemId: string, almacenId: string, cantidad: number, descripcion?: string) => {
+    return createEntradaStock(itemId, { almacenId, cantidad, descripcion })
   }
 
   const totalValor = itemsFiltrados.reduce((acc, item) => acc + (item.stock_total * (item.precio_unitario_bob ?? 0)), 0)
@@ -167,7 +184,7 @@ export default function ComprasNacionalesPage() {
                       <th className="px-3 py-3 text-left font-semibold text-foreground hidden lg:table-cell">Proveedor</th>
                       <th className="px-3 py-3 text-right font-semibold text-foreground hidden xl:table-cell">V. Unit.</th>
                       <th className="px-3 py-3 text-right font-semibold text-foreground hidden xl:table-cell">Total</th>
-                      <th className="px-3 py-3 text-center font-semibold text-foreground">Det.</th>
+                      <th className="px-3 py-3 text-center font-semibold text-foreground">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -191,13 +208,31 @@ export default function ComprasNacionalesPage() {
                             <td className="px-3 py-3 text-right font-semibold text-accent hidden xl:table-cell">
                               {precioBob > 0 ? `Bs. ${(item.stock_total * precioBob).toLocaleString()}` : '—'}
                             </td>
-                            <td className="px-3 py-3 text-center">
-                              <button
-                                onClick={() => toggleRow(item.id)}
-                                className="inline-flex items-center justify-center p-1 hover:bg-border rounded transition-colors"
-                              >
-                                <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                              </button>
+                            <td className="px-3 py-3">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => setStockEntryItem(item)}
+                                  title="Registrar entrada"
+                                  className="p-1.5 rounded hover:bg-accent/20 text-accent transition-colors"
+                                >
+                                  <PackagePlus className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => toggleRow(item.id)}
+                                  title="Ver detalle"
+                                  className="p-1.5 rounded hover:bg-border transition-colors"
+                                >
+                                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(item.id)}
+                                  disabled={deletingId === item.id}
+                                  title="Eliminar"
+                                  className="p-1.5 rounded hover:bg-red-500/20 text-red-400 transition-colors disabled:opacity-50"
+                                >
+                                  {deletingId === item.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                           {isExpanded && (
@@ -255,6 +290,15 @@ export default function ComprasNacionalesPage() {
         inventoryType="nacional"
         categorias={categorias}
         proveedores={proveedores}
+        almacenes={almacenes}
+      />
+
+      <StockEntryModal
+        isOpen={!!stockEntryItem}
+        onClose={() => setStockEntryItem(null)}
+        item={stockEntryItem}
+        almacenes={almacenes}
+        onSubmit={handleStockEntry}
       />
     </AppShell>
   )

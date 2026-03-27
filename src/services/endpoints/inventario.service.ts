@@ -14,6 +14,8 @@ export interface CreateItemDto {
   proveedorId?: string
   precioUnitarioBob?: number
   precioUnitarioUsd?: number
+  stockInicial?: number
+  almacenId?: string
 }
 
 export interface UpdateItemDto {
@@ -34,10 +36,28 @@ export interface SetAlmacenStockDto {
   cantidad: number
 }
 
+export interface CreateEntradaStockDto {
+  almacenId: string
+  cantidad: number
+  descripcion?: string
+}
+
+export interface AlmacenItemResponse {
+  id: string
+  almacen_id: string
+  item_id: string
+  cantidad: number
+  item: ItemInventario | null
+}
+
 export const inventarioService = {
   getAll(tipo?: ItemOrigen): Promise<ApiResponse<ItemInventario[]>> {
     const qs = tipo ? `?tipo=${tipo}` : ''
     return apiClient.get(`/inventario${qs}`)
+  },
+
+  getByAlmacen(almacenId: string): Promise<ApiResponse<AlmacenItemResponse[]>> {
+    return apiClient.get(`/inventario/almacen/${almacenId}`)
   },
 
   getById(id: string): Promise<ApiResponse<ItemInventario>> {
@@ -68,6 +88,10 @@ export const inventarioService = {
 
   delete(id: string): Promise<ApiResponse<void>> {
     return apiClient.delete(`/inventario/${id}`)
+  },
+
+  createEntradaStock(itemId: string, dto: CreateEntradaStockDto): Promise<ApiResponse<{ entrada: unknown; item: ItemInventario }>> {
+    return apiClient.post(`/inventario/${itemId}/entradas`, dto)
   },
 
   checkItemNumero(itemNumero: string, excludeId?: string): Promise<ApiResponse<{ exists: boolean }>> {

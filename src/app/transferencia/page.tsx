@@ -1,280 +1,452 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { AppShell } from '@/components/app-shell'
-import { MOCK_ALMACENES_EXTERNOS, MOCK_ALMACENES_OBRA } from '@/lib/constants'
-import { ArrowRight, Upload, Send, Package, Plus, Minus } from 'lucide-react'
-import Image from 'next/image'
+import { useAlmacenes } from '@/hooks/use-almacenes'
+import { inventarioService, transferenciasService } from '@/services'
+import type { AlmacenItemResponse } from '@/services'
+import { ArrowRight, ArrowLeft, Upload, Send, Loader2, Check, Minus, Plus, X, Search, ChevronDown } from 'lucide-react'
 
-interface ItemCard {
-  id: string
+type Step = 'almacenes' | 'items' | 'evidencia' | 'confirmacion'
+const STEPS: Step[] = ['almacenes', 'items', 'evidencia', 'confirmacion']
+const STEP_LABELS = ['Almacenes', 'Ítems', 'Evidencia', 'Confirmar']
+
+interface AllocatedItem {
+  itemId: string
   codigo: string
-  descripcion: string
-  cantidad_disponible: number
+  nombre: string | null
+  descripcion: string | null
   unidad: string
-  imagen: string
+  stockOrigen: number
+  allocations: { almacenDestinoId: string; cantidad: number }[]
 }
 
 export default function TransferenciaPage() {
-  const allWarehouses = [...MOCK_ALMACENES_EXTERNOS, ...MOCK_ALMACENES_OBRA]
-  
-  const [step, setStep] = useState<'origen' | 'items' | 'destino' | 'evidencia' | 'confirmacion'>('origen')
-  const [almacenOrigen, setAlmacenOrigen] = useState<string>('')
-  const [almacenDestino, setAlmacenDestino] = useState<string>('')
-  const [selectedItems, setSelectedItems] = useState<{ id: string; cantidad: number }[]>([])
-  const [notas, setNotas] = useState('')
+  const { almacenes } = useAlmacenes()
+  const [step, setStep] = useState<Step>('almacenes')
+
+  // Step 1
+  const [almacenOrigenId, setAlmacenOrigenId] = useState('')
+  const [destinoIds, setDestinoIds] = useState<Set<string>>(new Set())
+
+  // Step 2
+  const [originItems, setOriginItems] = useState<AlmacenItemResponse[]>([])
+  const [loadingItems, setLoadingItems] = useState(false)
+  const [allocatedItems, setAllocatedItems] = useState<AllocatedItem[]>([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [collapsedDestinos, setCollapsedDestinos] = useState<Set<string>>(new Set())
+
+  // Step 3
+  const [observaciones, setObservaciones] = useState('')
   const [archivo, setArchivo] = useState<File | null>(null)
-  const [cantidades, setCantidades] = useState<{ [key: string]: number }>({})
 
-  // Mock items disponibles en almacén origen con imágenes
-  const itemsDisponibles: ItemCard[] = [
-    { id: '1', codigo: 'SKF-6205-2RS', descripcion: 'Rodamiento de bolas profundo', cantidad_disponible: 50, unidad: 'Pieza', imagen: '/material-rodamiento.jpg' },
-    { id: '2', codigo: 'CEMENTO-50KG', descripcion: 'Cemento gris Portland tipo I', cantidad_disponible: 200, unidad: 'Bolsa', imagen: '/material-cemento.jpg' },
-    { id: '3', codigo: 'ACERO-CORR-8MM', descripcion: 'Acero corrugado grado 60', cantidad_disponible: 450, unidad: 'Kg', imagen: '/material-acero.jpg' },
-    { id: '4', codigo: 'HILTI-TE-30', descripcion: 'Taladro perforador Hilti TE 30', cantidad_disponible: 12, unidad: 'Pieza', imagen: '/material-taladro.jpg' },
-    { id: '5', codigo: 'TUBING-PVC-2IN', descripcion: 'Tubería PVC schedula 40', cantidad_disponible: 120, unidad: 'Metro', imagen: '/material-tuberia.jpg' },
-    { id: '6', codigo: 'ANDAMIO-METAL', descripcion: 'Andamio metálico estándar', cantidad_disponible: 25, unidad: 'Pieza', imagen: '/material-andamio.jpg' },
-  ]
+  // Submit
+  const [submitting, setSubmitting] = useState(false)
+  const [done, setDone] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
-  const handleSelectItem = (itemId: string) => {
-    if (selectedItems.find(item => item.id === itemId)) {
-      setSelectedItems(selectedItems.filter(item => item.id !== itemId))
-      const newCantidades = { ...cantidades }
-      delete newCantidades[itemId]
-      setCantidades(newCantidades)
-    } else {
-      setSelectedItems([...selectedItems, { id: itemId, cantidad: 1 }])
-      setCantidades({ ...cantidades, [itemId]: 1 })
+  const activeAlmacenes = useMemo(() => almacenes.filter((a) => a.estado === 'activo'), [almacenes])
+  const destinosArr = useMemo(() => activeAlmacenes.filter((a) => destinoIds.has(a.id)), [activeAlmacenes, destinoIds])
+  const origenAlmacen = activeAlmacenes.find((a) => a.id === almacenOrigenId)
+
+  // Fetch items when origin changes
+  useEffect(() => {
+    if (!almacenOrigenId) { setOriginItems([]); return }
+    let cancelled = false
+    setLoadingItems(true)
+    inventarioService.getByAlmacen(almacenOrigenId).then((res) => {
+      if (!cancelled) {
+        setOriginItems(res.data.filter((ai) => ai.cantidad > 0))
+        setLoadingItems(false)
+      }
+    }).catch(() => {
+      if (!cancelled) setLoadingItems(false)
+    })
+    return () => { cancelled = true }
+  }, [almacenOrigenId])
+
+  // Reset allocations when origin changes
+  useEffect(() => { setAllocatedItems([]) }, [almacenOrigenId])
+
+  const filteredOriginItems = useMemo(() => {
+    if (!searchTerm.trim()) return originItems
+    const term = searchTerm.toLowerCase()
+    return originItems.filter((ai) => {
+      const item = ai.item
+      return (
+        (item?.codigo ?? '').toLowerCase().includes(term) ||
+        (item?.nombre ?? '').toLowerCase().includes(term) ||
+        (item?.descripcion ?? '').toLowerCase().includes(term)
+      )
+    })
+  }, [originItems, searchTerm])
+
+  const toggleCollapseDestino = (id: string) => {
+    setCollapsedDestinos((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleDestino = (id: string) => {
+    setDestinoIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const addItemToAllocate = (ai: AlmacenItemResponse) => {
+    if (allocatedItems.find((a) => a.itemId === ai.item_id)) return
+    const item = ai.item
+    setAllocatedItems((prev) => [
+      ...prev,
+      {
+        itemId: ai.item_id,
+        codigo: item?.codigo ?? '—',
+        nombre: item?.nombre ?? null,
+        descripcion: item?.descripcion ?? null,
+        unidad: item?.unidad ?? 'pza',
+        stockOrigen: ai.cantidad,
+        allocations: Array.from(destinoIds).map((did) => ({ almacenDestinoId: did, cantidad: 0 })),
+      },
+    ])
+  }
+
+  const removeAllocatedItem = (itemId: string) => {
+    setAllocatedItems((prev) => prev.filter((a) => a.itemId !== itemId))
+  }
+
+  const setAllocation = (itemId: string, almacenDestinoId: string, cantidad: number) => {
+    setAllocatedItems((prev) =>
+      prev.map((a) => {
+        if (a.itemId !== itemId) return a
+        const otherTotal = a.allocations
+          .filter((al) => al.almacenDestinoId !== almacenDestinoId)
+          .reduce((s, al) => s + al.cantidad, 0)
+        const maxForThis = a.stockOrigen - otherTotal
+        const clamped = Math.max(0, Math.min(cantidad, maxForThis))
+        return {
+          ...a,
+          allocations: a.allocations.map((al) =>
+            al.almacenDestinoId === almacenDestinoId ? { ...al, cantidad: clamped } : al,
+          ),
+        }
+      }),
+    )
+  }
+
+  const totalAllocated = (item: AllocatedItem) => item.allocations.reduce((s, al) => s + al.cantidad, 0)
+  const itemsWithAllocations = allocatedItems.filter((a) => totalAllocated(a) > 0)
+
+  const canProceed = (): boolean => {
+    if (step === 'almacenes') return !!almacenOrigenId && destinoIds.size > 0
+    if (step === 'items') return itemsWithAllocations.length > 0
+    if (step === 'evidencia') return true
+    return false
+  }
+
+  const goNext = () => { const idx = STEPS.indexOf(step); if (idx < STEPS.length - 1) setStep(STEPS[idx + 1]) }
+  const goBack = () => { const idx = STEPS.indexOf(step); if (idx > 0) setStep(STEPS[idx - 1]) }
+
+  const handleSubmit = async () => {
+    setSubmitting(true)
+    setSubmitError('')
+    try {
+      const flatItems = itemsWithAllocations.flatMap((a) =>
+        a.allocations.filter((al) => al.cantidad > 0).map((al) => ({
+          almacenDestinoId: al.almacenDestinoId,
+          itemId: a.itemId,
+          cantidad: al.cantidad,
+        })),
+      )
+      const res = await transferenciasService.create({
+        almacenOrigenId,
+        items: flatItems,
+        observaciones: observaciones || undefined,
+      })
+      if (archivo && res.data?.id) {
+        await transferenciasService.uploadEvidencia(res.data.id, archivo)
+      }
+      setDone(true)
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : 'Error al crear la transferencia')
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const handleCantidadChange = (itemId: string, cantidad: number) => {
-    const item = itemsDisponibles.find(i => i.id === itemId)
-    if (item && cantidad <= item.cantidad_disponible && cantidad > 0) {
-      setCantidades({ ...cantidades, [itemId]: cantidad })
-      setSelectedItems(selectedItems.map(si => si.id === itemId ? { ...si, cantidad } : si))
-    }
+  const handleReset = () => {
+    setStep('almacenes')
+    setAlmacenOrigenId('')
+    setDestinoIds(new Set())
+    setOriginItems([])
+    setAllocatedItems([])
+    setObservaciones('')
+    setArchivo(null)
+    setSearchTerm('')
+    setCollapsedDestinos(new Set())
+    setDone(false)
+    setSubmitError('')
   }
 
-  const handleIncrement = (itemId: string) => {
-    const currentCantidad = cantidades[itemId] || 0
-    const item = itemsDisponibles.find(i => i.id === itemId)
-    if (item && currentCantidad < item.cantidad_disponible) {
-      handleCantidadChange(itemId, currentCantidad + 1)
-    }
-  }
-
-  const handleDecrement = (itemId: string) => {
-    const currentCantidad = cantidades[itemId] || 0
-    if (currentCantidad > 1) {
-      handleCantidadChange(itemId, currentCantidad - 1)
-    }
-  }
-
-  const handleArchivo = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setArchivo(e.target.files[0])
-    }
-  }
-
-  const handleConfirmar = () => {
-    if (step === 'origen' && almacenOrigen) {
-      setStep('items')
-    } else if (step === 'items' && selectedItems.length > 0) {
-      setStep('destino')
-    } else if (step === 'destino' && almacenDestino) {
-      setStep('evidencia')
-    } else if (step === 'evidencia' && (archivo || notas)) {
-      setStep('confirmacion')
-    }
-  }
+  const stepIdx = STEPS.indexOf(step)
 
   return (
     <AppShell>
       <div className="w-full max-w-6xl mx-auto space-y-6">
-        <div className="mb-6">
+        <div>
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground text-balance">Transferencia de Materiales</h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">Transfiere materiales entre almacenes con evidencia y notas</p>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">Transfiere materiales entre almacenes</p>
         </div>
 
-        {/* Progress Steps */}
-        <div className="flex items-center justify-between mb-6 overflow-x-auto pb-2">
-          {['origen', 'items', 'destino', 'evidencia', 'confirmacion'].map((s, idx) => {
-            const labels = ['Origen', 'Ítems', 'Destino', 'Evidencia', 'Confirmar']
-            const steps = ['origen', 'items', 'destino', 'evidencia', 'confirmacion']
-            const currentIdx = steps.indexOf(step)
-            return (
-              <div key={s} className="flex items-center flex-1 min-w-0">
-                <div className="flex flex-col items-center gap-1 shrink-0">
-                  <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-medium text-sm ${
-                    step === s ? 'bg-accent text-background' :
-                    currentIdx > idx ? 'bg-green-500 text-white' :
-                    'bg-border text-muted-foreground'
-                  }`}>
-                    {idx + 1}
-                  </div>
-                  <span className="text-xs text-muted-foreground hidden sm:block">{labels[idx]}</span>
+        {/* Progress */}
+        <div className="flex items-center justify-between overflow-x-auto pb-2">
+          {STEPS.map((s, idx) => (
+            <div key={s} className="flex items-center flex-1 min-w-0">
+              <div className="flex flex-col items-center gap-1 shrink-0">
+                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-medium text-sm ${
+                  done ? 'bg-green-500 text-white' :
+                  step === s ? 'bg-accent text-background' :
+                  stepIdx > idx ? 'bg-green-500 text-white' :
+                  'bg-border text-muted-foreground'
+                }`}>
+                  {done || stepIdx > idx ? <Check className="w-4 h-4" /> : idx + 1}
                 </div>
-                {idx < 4 && <div className={`flex-1 h-0.5 mx-1 sm:mx-2 ${
-                  currentIdx > idx ? 'bg-green-500' : 'bg-border'
-                }`}></div>}
+                <span className="text-xs text-muted-foreground hidden sm:block">{STEP_LABELS[idx]}</span>
               </div>
-            )
-          })}
+              {idx < STEPS.length - 1 && (
+                <div className={`flex-1 h-0.5 mx-1 sm:mx-2 ${done || stepIdx > idx ? 'bg-green-500' : 'bg-border'}`} />
+              )}
+            </div>
+          ))}
         </div>
 
-        {/* Paso 1: Seleccionar Almacén Origen */}
-        {step === 'origen' && (
-          <div className="bg-card border border-border rounded-lg p-4 sm:p-8">
-            <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-4 sm:mb-6">Selecciona Almacén de Origen</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-              {allWarehouses.map((almacen) => (
-                <button
-                  key={almacen.id}
-                  onClick={() => setAlmacenOrigen(almacen.id)}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${
-                    almacenOrigen === almacen.id
-                      ? 'border-accent bg-accent/10'
-                      : 'border-border hover:border-accent'
-                  }`}
-                >
-                  <p className="font-bold text-foreground">{almacen.nombre}</p>
-                  <p className="text-sm text-muted-foreground">{almacen.tipo_almacen === 'fijo' ? 'Externo' : 'Obra'}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{almacen.items_count} ítems</p>
-                </button>
-              ))}
+        {/* Done state */}
+        {done && (
+          <div className="bg-card border border-green-500/30 rounded-lg p-8 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto">
+              <Check className="w-8 h-8 text-green-500" />
             </div>
+            <h2 className="text-2xl font-bold text-foreground">Transferencia Completada</h2>
+            <p className="text-muted-foreground">Los materiales han sido transferidos correctamente</p>
+            <button onClick={handleReset} className="px-6 py-3 bg-accent text-background rounded-lg hover:bg-accent/90 transition-colors font-medium">
+              Nueva Transferencia
+            </button>
           </div>
         )}
 
-        {/* Paso 2: Seleccionar Items */}
-        {step === 'items' && (
-          <div className="bg-card border border-border rounded-lg p-4 sm:p-8">
-            <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-4 sm:mb-6">Selecciona Ítems a Transferir</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              {itemsDisponibles.map((item) => (
-                <div
-                  key={item.id}
-                  className={`border-2 rounded-lg overflow-hidden transition-all cursor-pointer ${
-                    selectedItems.find(si => si.id === item.id)
-                      ? 'border-accent bg-accent/10'
-                      : 'border-border hover:border-accent'
-                  }`}
-                >
-                  {/* Imagen */}
-                  <div className="relative w-full h-40 bg-muted">
-                    <Image
-                      src={item.imagen}
-                      alt={item.descripcion}
-                      fill
-                      className="object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23e5e7eb" width="100" height="100"/%3E%3Ctext x="50" y="50" text-anchor="middle" dy=".3em" fill="%236b7280" font-size="12"%3EImagen%3C/text%3E%3C/svg%3E'
-                      }}
-                    />
-                  </div>
+        {/* Step 1: Origin + Destinations */}
+        {!done && step === 'almacenes' && (
+          <div className="space-y-6">
+            <div className="bg-card border border-border rounded-lg p-4 sm:p-6">
+              <h2 className="text-lg font-bold text-foreground mb-4">Almacén de Origen</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {activeAlmacenes.map((alm) => (
+                  <button
+                    key={alm.id}
+                    onClick={() => { setAlmacenOrigenId(alm.id); setDestinoIds((prev) => { const n = new Set(prev); n.delete(alm.id); return n }) }}
+                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                      almacenOrigenId === alm.id ? 'border-accent bg-accent/10' : 'border-border hover:border-accent/50'
+                    }`}
+                  >
+                    <p className="font-bold text-foreground text-sm">{alm.nombre}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{alm.tipo_almacen === 'fijo' ? 'Almacén fijo' : 'Obra'} — {alm.items_count} ítems</p>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-                  {/* Contenido */}
-                  <div className="p-4">
-                    <p className="font-mono text-xs text-muted-foreground mb-1">{item.codigo}</p>
-                    <p className="font-bold text-foreground mb-2 text-sm line-clamp-2">{item.descripcion}</p>
-                    <p className="text-xs text-muted-foreground mb-4">Disponible: {item.cantidad_disponible} {item.unidad}</p>
-
-                    {/* Controles */}
-                    {selectedItems.find(si => si.id === item.id) ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleDecrement(item.id)}
-                          className="p-2 rounded bg-border hover:bg-accent/20 transition-colors"
-                        >
-                          <Minus className="w-4 h-4 text-foreground" />
-                        </button>
-                        <input
-                          type="number"
-                          min="1"
-                          max={item.cantidad_disponible}
-                          value={cantidades[item.id] || 1}
-                          onChange={(e) => handleCantidadChange(item.id, parseInt(e.target.value))}
-                          className="flex-1 px-2 py-1 bg-background border border-border rounded text-foreground text-sm text-center"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <button
-                          onClick={() => handleIncrement(item.id)}
-                          className="p-2 rounded bg-border hover:bg-accent/20 transition-colors"
-                        >
-                          <Plus className="w-4 h-4 text-foreground" />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => handleSelectItem(item.id)}
-                        className="w-full py-2 rounded bg-accent text-white hover:bg-accent/90 transition-colors font-medium text-sm"
-                      >
-                        Seleccionar
-                      </button>
-                    )}
-                  </div>
+            {almacenOrigenId && (
+              <div className="bg-card border border-border rounded-lg p-4 sm:p-6">
+                <h2 className="text-lg font-bold text-foreground mb-2">Almacenes de Destino</h2>
+                <p className="text-sm text-muted-foreground mb-4">Selecciona uno o más destinos</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {activeAlmacenes.filter((a) => a.id !== almacenOrigenId).map((alm) => (
+                    <button
+                      key={alm.id}
+                      onClick={() => toggleDestino(alm.id)}
+                      className={`p-4 rounded-lg border-2 transition-all text-left ${
+                        destinoIds.has(alm.id) ? 'border-accent bg-accent/10' : 'border-border hover:border-accent/50'
+                      }`}
+                    >
+                      <p className="font-bold text-foreground text-sm">{alm.nombre}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{alm.tipo_almacen === 'fijo' ? 'Almacén fijo' : 'Obra'}</p>
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <p className="mt-4 text-sm text-muted-foreground">{selectedItems.length} ítem(s) seleccionado(s)</p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Paso 3: Seleccionar Almacén Destino */}
-        {step === 'destino' && (
-          <div className="bg-card border border-border rounded-lg p-4 sm:p-8">
-            <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-4 sm:mb-6">Selecciona Almacén de Destino</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-              {allWarehouses
-                .filter(a => a.id !== almacenOrigen)
-                .map((almacen) => (
-                <button
-                  key={almacen.id}
-                  onClick={() => setAlmacenDestino(almacen.id)}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${
-                    almacenDestino === almacen.id
-                      ? 'border-accent bg-accent/10'
-                      : 'border-border hover:border-accent'
-                  }`}
-                >
-                  <p className="font-bold text-foreground">{almacen.nombre}</p>
-                  <p className="text-sm text-muted-foreground">{almacen.tipo_almacen === 'fijo' ? 'Externo' : 'Obra'}</p>
-                </button>
-              ))}
+        {/* Step 2: Allocate quantities — Two-panel layout */}
+        {!done && step === 'items' && (
+          <div className="flex flex-col lg:flex-row gap-4">
+            {/* LEFT PANEL — Origin Stock */}
+            <div className="w-full lg:w-1/2 bg-card border border-border rounded-lg p-4 sm:p-5 flex flex-col max-h-[75vh]">
+              <h2 className="text-lg font-bold text-foreground mb-3">Stock en {origenAlmacen?.nombre ?? 'origen'}</h2>
+
+              {/* Search */}
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Buscar por código, nombre o descripción..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                />
+              </div>
+
+              {/* Items list */}
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                {loadingItems ? (
+                  <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+                    <Loader2 className="w-5 h-5 animate-spin" /> Cargando...
+                  </div>
+                ) : filteredOriginItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    {originItems.length === 0 ? 'No hay ítems con stock en este almacén.' : 'No se encontraron ítems.'}
+                  </p>
+                ) : (
+                  filteredOriginItems.map((ai) => {
+                    const isAdded = allocatedItems.some((a) => a.itemId === ai.item_id)
+                    const allocated = allocatedItems.find((a) => a.itemId === ai.item_id)
+                    const remaining = allocated ? ai.cantidad - totalAllocated(allocated) : ai.cantidad
+                    return (
+                      <button
+                        key={ai.id}
+                        onClick={() => addItemToAllocate(ai)}
+                        disabled={isAdded}
+                        className={`w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                          isAdded
+                            ? remaining === 0
+                              ? 'border-red-500/30 bg-red-500/5 opacity-50 cursor-not-allowed'
+                              : 'border-accent/50 bg-accent/5 opacity-70 cursor-default'
+                            : 'border-border hover:border-accent hover:bg-accent/5'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono text-xs text-muted-foreground">{ai.item?.codigo ?? '—'}</p>
+                          <p className="text-sm font-medium text-foreground truncate">{ai.item?.descripcion ?? ai.item?.nombre ?? '—'}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`text-sm font-bold ${isAdded && remaining === 0 ? 'text-red-400' : 'text-accent'}`}>
+                            {isAdded ? remaining : ai.cantidad}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{ai.item?.unidad ?? ''}</p>
+                        </div>
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT PANEL — Destination Warehouses */}
+            <div className="w-full lg:w-1/2 flex flex-col max-h-[75vh] overflow-y-auto space-y-3 pr-1">
+              {allocatedItems.length === 0 ? (
+                <div className="bg-card border border-border border-dashed rounded-lg p-8 flex items-center justify-center h-full min-h-[200px]">
+                  <p className="text-sm text-muted-foreground text-center">
+                    Selecciona ítems del panel izquierdo para asignar cantidades a los almacenes de destino
+                  </p>
+                </div>
+              ) : (
+                destinosArr.map((dest) => {
+                  const isCollapsed = collapsedDestinos.has(dest.id)
+                  const itemsWithQty = allocatedItems.filter((a) => {
+                    const al = a.allocations.find((al) => al.almacenDestinoId === dest.id)
+                    return al && al.cantidad > 0
+                  }).length
+                  return (
+                    <div key={dest.id} className="bg-card border border-border rounded-lg">
+                      <button
+                        onClick={() => toggleCollapseDestino(dest.id)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-accent/5 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-accent" />
+                          <h3 className="text-sm font-bold text-foreground">{dest.nombre}</h3>
+                          <span className="text-xs text-muted-foreground">
+                            ({itemsWithQty} {itemsWithQty === 1 ? 'ítem' : 'ítems'})
+                          </span>
+                        </div>
+                        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isCollapsed ? '' : 'rotate-180'}`} />
+                      </button>
+
+                      {!isCollapsed && (
+                        <div className="px-4 pb-4 space-y-2">
+                          {allocatedItems.map((item) => {
+                            const alloc = item.allocations.find((al) => al.almacenDestinoId === dest.id)
+                            const cant = alloc?.cantidad ?? 0
+                            const remaining = item.stockOrigen - totalAllocated(item)
+                            return (
+                              <div key={item.itemId} className="flex items-center gap-2 bg-background border border-border rounded-lg p-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium text-foreground truncate">{item.descripcion ?? item.nombre ?? '—'}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    <span className="font-mono">{item.codigo}</span> · Restante: <span className={remaining === 0 && cant === 0 ? 'text-red-400' : 'text-accent'}>{remaining}</span> {item.unidad}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button onClick={() => setAllocation(item.itemId, dest.id, cant - 1)} className="p-1 rounded bg-border hover:bg-accent/20">
+                                    <Minus className="w-3 h-3 text-foreground" />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={item.stockOrigen}
+                                    value={cant}
+                                    onChange={(e) => setAllocation(item.itemId, dest.id, parseInt(e.target.value) || 0)}
+                                    className="w-14 px-1 py-1 bg-background border border-border rounded text-sm text-center text-foreground"
+                                  />
+                                  <button onClick={() => setAllocation(item.itemId, dest.id, cant + 1)} className="p-1 rounded bg-border hover:bg-accent/20">
+                                    <Plus className="w-3 h-3 text-foreground" />
+                                  </button>
+                                </div>
+                                <button onClick={() => removeAllocatedItem(item.itemId)} className="p-1 hover:bg-red-500/20 rounded text-red-400 shrink-0">
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
             </div>
           </div>
         )}
 
-        {/* Paso 4: Evidencia y Notas */}
-        {step === 'evidencia' && (
+        {/* Step 3: Evidence */}
+        {!done && step === 'evidencia' && (
           <div className="bg-card border border-border rounded-lg p-4 sm:p-8 space-y-6">
-            <h2 className="text-xl sm:text-2xl font-bold text-foreground">Evidencia y Notas</h2>
-            
+            <h2 className="text-xl font-bold text-foreground">Evidencia y Observaciones</h2>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-3">Notas sobre la Transferencia</label>
+              <label className="block text-sm font-medium text-foreground mb-2">Observaciones (opcional)</label>
               <textarea
-                value={notas}
-                onChange={(e) => setNotas(e.target.value)}
-                placeholder="Especifica el motivo de la transferencia..."
-                className="w-full px-4 py-3 bg-background border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-accent"
+                value={observaciones}
+                onChange={(e) => setObservaciones(e.target.value)}
+                placeholder="Motivo de la transferencia..."
+                className="w-full px-4 py-3 bg-background border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 rows={4}
               />
             </div>
-
             <div>
-              <label className="block text-sm font-medium text-foreground mb-3">Adjunta Evidencia</label>
+              <label className="block text-sm font-medium text-foreground mb-2">Adjuntar evidencia (opcional)</label>
               <label className="flex items-center justify-center w-full px-4 py-6 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
                 <div className="flex items-center gap-2">
                   <Upload className="w-5 h-5 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    {archivo ? archivo.name : 'PDF, Excel, Word o Foto'}
-                  </span>
+                  <span className="text-muted-foreground text-sm">{archivo ? archivo.name : 'PDF, JPG o PNG (máx. 10 MB)'}</span>
                 </div>
                 <input
                   type="file"
-                  accept=".pdf,.xls,.xlsx,.doc,.docx,.jpg,.jpeg,.png"
-                  onChange={handleArchivo}
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
                   className="hidden"
                 />
               </label>
@@ -282,79 +454,97 @@ export default function TransferenciaPage() {
           </div>
         )}
 
-        {/* Paso 5: Confirmación */}
-        {step === 'confirmacion' && (
-          <div className="bg-card border border-border rounded-lg p-8">
-            <h2 className="text-2xl font-bold text-foreground mb-6">Confirmar Transferencia</h2>
-            <div className="space-y-4">
-              <div className="bg-background border border-border rounded-lg p-4">
-                <p className="text-sm text-muted-foreground">De: {allWarehouses.find(a => a.id === almacenOrigen)?.nombre}</p>
-                <p className="font-bold text-foreground mt-1">A: {allWarehouses.find(a => a.id === almacenDestino)?.nombre}</p>
-              </div>
-              <div className="bg-background border border-border rounded-lg p-4">
-                <p className="font-bold text-foreground mb-2">Ítems:</p>
-                {selectedItems.map(si => {
-                  const item = itemsDisponibles.find(i => i.id === si.id)
-                  return item ? (
-                    <p key={si.id} className="text-sm text-muted-foreground">
-                      {item.descripcion} - {si.cantidad} {item.unidad}
-                    </p>
-                  ) : null
-                })}
-              </div>
-              {notas && (
-                <div className="bg-background border border-border rounded-lg p-4">
-                  <p className="font-bold text-foreground mb-2">Notas:</p>
-                  <p className="text-sm text-muted-foreground">{notas}</p>
-                </div>
-              )}
-              {archivo && (
-                <div className="bg-background border border-border rounded-lg p-4">
-                  <p className="font-bold text-foreground mb-2">Evidencia:</p>
-                  <p className="text-sm text-muted-foreground">{archivo.name}</p>
-                </div>
-              )}
+        {/* Step 4: Confirmation */}
+        {!done && step === 'confirmacion' && (
+          <div className="bg-card border border-border rounded-lg p-4 sm:p-8 space-y-6">
+            <h2 className="text-xl font-bold text-foreground">Resumen de Transferencia</h2>
+
+            <div className="bg-background border border-border rounded-lg p-4">
+              <p className="text-xs text-muted-foreground mb-1">Origen</p>
+              <p className="font-bold text-foreground">{origenAlmacen?.nombre}</p>
             </div>
+
+            <div className="bg-background border border-border rounded-lg p-4">
+              <p className="text-xs text-muted-foreground mb-1">Destino(s)</p>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {destinosArr.map((d) => (
+                  <span key={d.id} className="px-2 py-1 rounded bg-accent/20 text-accent text-sm font-medium">{d.nombre}</span>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-background border border-border rounded-lg p-4">
+              <p className="text-xs text-muted-foreground mb-2">Ítems a transferir</p>
+              <div className="space-y-3">
+                {itemsWithAllocations.map((item) => (
+                  <div key={item.itemId} className="border border-border rounded-lg p-3">
+                    <p className="font-mono text-xs text-muted-foreground">{item.codigo}</p>
+                    <p className="text-sm font-medium text-foreground">{item.descripcion ?? item.nombre ?? '—'}</p>
+                    <div className="mt-2 space-y-1">
+                      {item.allocations.filter((al) => al.cantidad > 0).map((al) => {
+                        const dest = destinosArr.find((d) => d.id === al.almacenDestinoId)
+                        return (
+                          <p key={al.almacenDestinoId} className="text-xs text-muted-foreground">
+                            → {dest?.nombre}: <span className="font-bold text-accent">{al.cantidad} {item.unidad}</span>
+                          </p>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {observaciones && (
+              <div className="bg-background border border-border rounded-lg p-4">
+                <p className="text-xs text-muted-foreground mb-1">Observaciones</p>
+                <p className="text-sm text-foreground">{observaciones}</p>
+              </div>
+            )}
+            {archivo && (
+              <div className="bg-background border border-border rounded-lg p-4">
+                <p className="text-xs text-muted-foreground mb-1">Evidencia</p>
+                <p className="text-sm text-foreground">{archivo.name}</p>
+              </div>
+            )}
+
+            {submitError && (
+              <div className="bg-red-900/20 border border-red-500/30 text-red-400 rounded-lg p-4 text-sm">{submitError}</div>
+            )}
           </div>
         )}
 
-        {/* Botones de Navegación */}
-        <div className="flex gap-3 justify-end flex-wrap">
-          {step !== 'origen' && (
-            <button
-              onClick={() => {
-                const steps: any[] = ['origen', 'items', 'destino', 'evidencia', 'confirmacion']
-                setStep(steps[steps.indexOf(step) - 1])
-              }}
-              className="px-6 py-3 bg-border text-foreground rounded-lg hover:bg-border/80 transition-colors font-medium"
-            >
-              Atrás
-            </button>
-          )}
-          <button
-            onClick={handleConfirmar}
-            disabled={
-              (step === 'origen' && !almacenOrigen) ||
-              (step === 'items' && selectedItems.length === 0) ||
-              (step === 'destino' && !almacenDestino) ||
-              (step === 'evidencia' && !archivo && !notas) ||
-              (step === 'confirmacion')
-            }
-            className="px-6 py-3 bg-accent text-background rounded-lg hover:bg-accent/90 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {step === 'confirmacion' ? (
-              <>
-                <Send className="w-4 h-4" />
-                Completar Transferencia
-              </>
-            ) : (
-              <>
-                Continuar
-                <ArrowRight className="w-4 h-4" />
-              </>
+        {/* Navigation */}
+        {!done && (
+          <div className="flex gap-3 justify-end flex-wrap">
+            {stepIdx > 0 && (
+              <button
+                onClick={goBack}
+                className="px-6 py-3 bg-border text-foreground rounded-lg hover:bg-border/80 transition-colors font-medium flex items-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" /> Atrás
+              </button>
             )}
-          </button>
-        </div>
+            {step !== 'confirmacion' ? (
+              <button
+                onClick={goNext}
+                disabled={!canProceed()}
+                className="px-6 py-3 bg-accent text-background rounded-lg hover:bg-accent/90 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                Continuar <ArrowRight className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="px-6 py-3 bg-accent text-background rounded-lg hover:bg-accent/90 transition-colors font-medium disabled:opacity-50 flex items-center gap-2"
+              >
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {submitting ? 'Procesando...' : 'Completar Transferencia'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </AppShell>
   )
