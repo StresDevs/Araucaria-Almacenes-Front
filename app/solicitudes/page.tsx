@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { AppShell } from '@/components/app-shell'
-import { MOCK_CONTRATISTAS, MOCK_ITEMS_CATALOGO, MOCK_ALMACENES_EXTERNOS } from '@/lib/constants'
+import { MOCK_CONTRATISTAS, MOCK_ITEMS_CATALOGO, MOCK_ALMACENES_EXTERNOS, MOCK_OBRAS } from '@/lib/constants'
 import { Search, Plus, Trash2, Printer, Check } from 'lucide-react'
 
 interface CartItem {
@@ -17,17 +17,27 @@ interface CartItem {
 
 export default function SolicitudesPage() {
   const [selectedContratista, setSelectedContratista] = useState<string | null>(null)
+  const [localContratistas, setLocalContratistas] = useState(MOCK_CONTRATISTAS)
   const [selectedAlmacen, setSelectedAlmacen] = useState<string>('Almacén Anaya')
   const [searchContratista, setSearchContratista] = useState('')
+  const [selectedObra, setSelectedObra] = useState<string | null>(null)
+  const [showNewContratistaModal, setShowNewContratistaModal] = useState(false)
+  const [newContratistaNombre, setNewContratistaNombre] = useState('')
+  const [newContratistaEmpresa, setNewContratistaEmpresa] = useState('')
+  const [orderName, setOrderName] = useState('')
+  const [sector, setSector] = useState('')
+  const [piso, setPiso] = useState('')
+  const [depto, setDepto] = useState('')
   const [searchItem, setSearchItem] = useState('')
   const [itemTypeFilter, setItemTypeFilter] = useState<'Todo' | 'Materiales' | 'Herramientas' | 'Indumentaria'>('Todo')
   const [cart, setCart] = useState<CartItem[]>([])
   const [observaciones, setObservaciones] = useState('')
   const [isConfirmed, setIsConfirmed] = useState(false)
 
-  const filteredContratistas = MOCK_CONTRATISTAS.filter(c =>
-    c.nombre.toLowerCase().includes(searchContratista.toLowerCase()) ||
-    c.empresa.toLowerCase().includes(searchContratista.toLowerCase())
+  const filteredContratistas = localContratistas.filter(c =>
+    (c.nombre.toLowerCase().includes(searchContratista.toLowerCase()) ||
+    c.empresa.toLowerCase().includes(searchContratista.toLowerCase())) &&
+    (!selectedObra || c.obra === selectedObra)
   )
 
   const itemsWithTypes = MOCK_ITEMS_CATALOGO.map(item => ({
@@ -78,7 +88,7 @@ export default function SolicitudesPage() {
   }
 
   const handleConfirmar = () => {
-    if (selectedContratista && cart.length > 0) {
+    if (selectedContratista && cart.length > 0 && selectedObra && orderName.trim()) {
       setIsConfirmed(true)
     }
   }
@@ -90,18 +100,23 @@ export default function SolicitudesPage() {
     setIsConfirmed(false)
     setSearchContratista('')
     setSearchItem('')
+    setOrderName('')
+    setSector('')
+    setPiso('')
+    setDepto('')
+    setSelectedObra(null)
   }
 
   const selectedContratistaData = selectedContratista
-    ? MOCK_CONTRATISTAS.find(c => c.id === selectedContratista)
+    ? localContratistas.find(c => c.id === selectedContratista)
     : null
 
   return (
     <AppShell>
       <div className="w-full max-w-7xl mx-auto space-y-6">
-        <div className="mb-6">
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground text-balance">Entrega de Material</h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">Entrega de materiales a contratistas y obras</p>
+          <div className="mb-6">
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground text-balance">Entrega de Material / Solicitud</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">Asignar obra, contratista, sector y materiales para una orden de trabajo</p>
         </div>
 
         {isConfirmed ? (
@@ -113,6 +128,9 @@ export default function SolicitudesPage() {
             </div>
             <h2 className="text-2xl font-bold text-center text-foreground mb-4">Despacho Registrado</h2>
             <div className="bg-border/50 rounded-lg p-6 mb-8">
+              {orderName && <p className="text-foreground mb-2"><strong>Orden:</strong> {orderName}</p>}
+              {sector && <p className="text-foreground mb-2"><strong>Sector:</strong> {sector}</p>}
+              {(piso || depto) && <p className="text-foreground mb-2"><strong>Ubicación:</strong> {piso}{piso && depto ? ' / ' : ''}{depto}</p>}
               <p className="text-foreground mb-4"><strong>Contratista:</strong> {selectedContratistaData?.nombre}</p>
               <p className="text-foreground mb-4"><strong>Empresa:</strong> {selectedContratistaData?.empresa}</p>
               <p className="text-foreground mb-4"><strong>Obra:</strong> {selectedContratistaData?.obra}</p>
@@ -137,6 +155,19 @@ export default function SolicitudesPage() {
                   <h2 className="text-xl font-bold text-foreground mb-4">Paso 1: Identificar Contratista</h2>
                   <div className="space-y-4">
                     <div>
+                      <label className="block text-sm text-muted-foreground mb-2">Seleccionar Obra</label>
+                      <select
+                        value={selectedObra || ''}
+                        onChange={(e) => setSelectedObra(e.target.value || null)}
+                        className="w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                      >
+                        <option value="">-- Seleccione obra --</option>
+                        {MOCK_OBRAS.map(o => (
+                          <option key={o.id} value={o.nombre}>{o.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
                       <label className="block text-sm text-muted-foreground mb-2">Buscar contratista por nombre o empresa</label>
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" />
@@ -148,6 +179,16 @@ export default function SolicitudesPage() {
                           className="w-full pl-10 pr-4 py-2 bg-input border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                         />
                       </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setShowNewContratistaModal(true)}
+                        className="px-3 py-2 bg-accent text-white rounded-lg font-medium hover:bg-accent/90"
+                      >
+                        Agregar contratista
+                      </button>
+                      <p className="text-sm text-muted-foreground">(o seleccione uno existente — filtrado por obra)</p>
                     </div>
 
                     {searchContratista && !selectedContratista && (
@@ -199,6 +240,52 @@ export default function SolicitudesPage() {
                     )}
                   </div>
                 </div>
+
+                {/* Nuevo contratista modal */}
+                {showNewContratistaModal && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center">
+                    <div className="absolute inset-0 bg-black/40" onClick={() => setShowNewContratistaModal(false)} />
+                    <div className="relative bg-card border border-border rounded-lg p-6 w-full max-w-md">
+                      <h3 className="text-lg font-bold mb-4">Agregar nuevo contratista</h3>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-sm text-muted-foreground mb-1">Nombre</label>
+                          <input value={newContratistaNombre} onChange={(e) => setNewContratistaNombre(e.target.value)} className="w-full px-3 py-2 bg-input border border-border rounded" />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-muted-foreground mb-1">Empresa</label>
+                          <input value={newContratistaEmpresa} onChange={(e) => setNewContratistaEmpresa(e.target.value)} className="w-full px-3 py-2 bg-input border border-border rounded" />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-muted-foreground mb-1">Obra</label>
+                          <select value={selectedObra || ''} onChange={(e) => setSelectedObra(e.target.value || null)} className="w-full px-3 py-2 bg-input border border-border rounded">
+                            <option value="">-- Seleccione obra --</option>
+                            {MOCK_OBRAS.map(o => (<option key={o.id} value={o.nombre}>{o.nombre}</option>))}
+                          </select>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={() => setShowNewContratistaModal(false)} className="px-3 py-2 bg-border rounded">Cancelar</button>
+                          <button
+                            onClick={() => {
+                              const nombre = newContratistaNombre.trim()
+                              if (!nombre) return
+                              const empresa = newContratistaEmpresa.trim() || '—'
+                              const id = 'c-' + Date.now()
+                              const obraName = selectedObra || (MOCK_OBRAS[0]?.nombre ?? '')
+                              const nuevo: any = { id, nombre, empresa, obra: obraName, estado: 'activo', fecha_registro: new Date().toISOString().split('T')[0] }
+                              setLocalContratistas([nuevo, ...localContratistas])
+                              setSelectedContratista(id)
+                              setNewContratistaNombre('')
+                              setNewContratistaEmpresa('')
+                              setShowNewContratistaModal(false)
+                            }}
+                            className="px-3 py-2 bg-accent text-white rounded"
+                          >Crear</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {selectedContratista && (
                   <div className="bg-card border border-border rounded-lg p-6">
@@ -276,6 +363,28 @@ export default function SolicitudesPage() {
                   </div>
                 )}
 
+                  <div className="mb-4">
+                    <label className="block text-xs text-muted-foreground mb-2">Nombre de la Orden</label>
+                    <input value={orderName} onChange={(e) => setOrderName(e.target.value)} placeholder="Ej: Trabajo de pintura" className="w-full px-3 py-2 bg-input border border-border rounded text-sm text-foreground" />
+                  </div>
+
+                  <div className="mb-4 grid grid-cols-1 gap-3">
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-2">Sector</label>
+                      <input value={sector} onChange={(e) => setSector(e.target.value)} className="w-full px-3 py-2 bg-input border border-border rounded text-sm text-foreground" />
+                    </div>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label className="block text-xs text-muted-foreground mb-2">Piso</label>
+                        <input value={piso} onChange={(e) => setPiso(e.target.value)} className="w-full px-3 py-2 bg-input border border-border rounded text-sm text-foreground" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-xs text-muted-foreground mb-2">Depto</label>
+                        <input value={depto} onChange={(e) => setDepto(e.target.value)} className="w-full px-3 py-2 bg-input border border-border rounded text-sm text-foreground" />
+                      </div>
+                    </div>
+                  </div>
+
                 {cart.length > 0 && (
                   <div className="space-y-3 mb-6 max-h-64 overflow-y-auto">
                     {cart.map(item => (
@@ -331,7 +440,7 @@ export default function SolicitudesPage() {
                   </button>
                   <button
                     onClick={handleConfirmar}
-                    disabled={!selectedContratista || cart.length === 0}
+                    disabled={!selectedContratista || cart.length === 0 || !selectedObra || !orderName.trim()}
                     className="flex-1 px-4 py-2 bg-accent text-white rounded-lg font-medium hover:bg-accent/90 disabled:bg-muted disabled:text-muted-foreground transition-colors"
                   >
                     Confirmar despacho
