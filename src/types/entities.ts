@@ -54,6 +54,7 @@ export interface ItemCatalogo {
   rendimiento?: string
   tipo: 'Imp. Nueva' | 'Imp. Antigua'
   almacenes_count: number
+  almacen_nombre?: string
 }
 
 export interface CartItem {
@@ -111,9 +112,44 @@ export interface Contratista {
   id: string
   nombre: string
   empresa: string
+  telefono?: string
   obra: string
   estado: 'activo' | 'inactivo'
   fecha_registro: string
+}
+
+// ─── Órdenes de Entrega de Material ──────────────────────────────────────────
+
+export interface OrdenEntregaItem {
+  id: string
+  codigo_fab: string
+  descripcion: string
+  cantidad: number
+  unidad: string
+  imagen_url?: string
+  categoria: 'Materiales' | 'Herramientas' | 'Indumentaria'
+}
+
+export interface OrdenEntrega {
+  id: string
+  numero_orden: string
+  obra_id: string
+  obra_nombre: string
+  contratista_id: string
+  contratista_nombre: string
+  contratista_telefono?: string
+  tipo_trabajo: string
+  titulo: string
+  descripcion?: string
+  sector: string
+  piso: string
+  departamento: string
+  duracion_dias: number
+  items: OrdenEntregaItem[]
+  total_items: number
+  total_unidades: number
+  creado_por: string
+  created_at: string
 }
 
 // ─── Movimientos ──────────────────────────────────────────────────────────────
