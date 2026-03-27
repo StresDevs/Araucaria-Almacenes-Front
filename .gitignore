@@ -2,7 +2,6 @@
 __v0_runtime_loader.js
 __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
-.npmrc
 .snowflake/
 .v0-trash/
 .vercel/
@@ -15,3 +14,10 @@ next.user-config.*
 node_modules/
 .next/
 .DS_Store
+
+# Lockfiles from other package managers (use pnpm only)
+package-lock.json
+yarn.lock
+
+# Project context (local documentation, not for remote)
+context-project/

@@ -5,14 +5,14 @@ import { AppShell } from '@/components/app-shell'
 import { SectorizationWizard } from '@/components/sectorization-wizard'
 import { Plus, Edit2, Trash2, Eye, Grid3x3 } from 'lucide-react'
 import { MOCK_SECTORIZATION, MOCK_OBRAS } from '@/lib/constants'
-import type { ObraSectorizacion } from '@/lib/constants'
+import type { ObraSectorizacion, ObraItem } from '@/types'
 
 export default function SectorizacionPage() {
   const [sectorizations, setSectorizations] = useState<ObraSectorizacion[]>(MOCK_SECTORIZATION)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [editingObraId, setEditingObraId] = useState<string | null>(null)
 
-  const handleSave = (obraId: string, data: any) => {
+  const handleSave = (obraId: string, data: Pick<ObraSectorizacion, 'sectores' | 'pisos'>) => {
     setSectorizations(prev =>
       prev.map(sec =>
         sec.obraId === obraId
@@ -20,7 +20,7 @@ export default function SectorizacionPage() {
           : sec
       )
     )
-    setEditingOpen(false)
+    setWizardOpen(false)
   }
 
   const handleDelete = (obraId: string) => {
@@ -28,8 +28,6 @@ export default function SectorizacionPage() {
       setSectorizations(prev => prev.filter(sec => sec.obraId !== obraId))
     }
   }
-
-  const [setEditingOpen] = useState(false)
 
   const getMissingObras = () => {
     const sectorizedObraIds = sectorizations.map(s => s.obraId)

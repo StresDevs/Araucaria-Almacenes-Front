@@ -56,7 +56,7 @@ export default function HistorialTransferenciasPage() {
         { codigo: 'TUBING-PVC-2IN', descripcion: 'Tubería PVC schedula 40', cantidad: 80, unidad: 'Metro' }
       ],
       notas: 'Instalación de sistema de tuberías',
-      archivo: null
+      archivo: undefined
     },
     {
       id: '4',

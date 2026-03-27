@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { DM_Sans, JetBrains_Mono, Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
-import { ThemeProvider } from '@/components/theme-provider'
+import { AppProviders } from '@/providers'
 import './globals.css'
 
 const dmSans = DM_Sans({ 
@@ -50,10 +50,10 @@ export default function RootLayout({
   return (
     <html lang="es" suppressHydrationWarning>
       <body className={`${dmSans.variable} ${jetbrainsMono.variable} font-sans antialiased bg-background text-foreground`}>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+        <AppProviders>
           {children}
           <Analytics />
-        </ThemeProvider>
+        </AppProviders>
       </body>
     </html>
   )

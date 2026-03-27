@@ -96,8 +96,8 @@ export default function BajasPage() {
   const totalItemsDados = bajas.reduce((sum, baja) => sum + baja.cantidad, 0)
   const motivoMasComun = bajas.length > 0
     ? MOTIVOS_BAJA[MOTIVOS_BAJA.findIndex(m => m.id === bajas.reduce((prev, current) =>
-      bajas.filter(b => b.motivo === prev).length > bajas.filter(b => b.motivo === current).length ? prev : current
-    ))]?.label
+      bajas.filter(b => b.motivo === prev.motivo).length > bajas.filter(b => b.motivo === current.motivo).length ? prev : current
+    ).motivo)]?.label
     : '-'
 
   const handleAddBaja = () => {

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { AppShell } from '@/components/app-shell'
 import { ChevronLeft } from 'lucide-react'
 import { MOCK_SECTORIZATION } from '@/lib/constants'
-import type { ObraSectorizacion } from '@/lib/constants'
+import type { ObraSectorizacion, Piso, Sector, Departamento } from '@/types'
 
 export default function SectorizacionDetailPage() {
   const params = useParams()
@@ -56,7 +56,7 @@ export default function SectorizacionDetailPage() {
           <div className="bg-card border border-border rounded-lg p-4">
             <p className="text-xs sm:text-sm text-muted-foreground font-mono uppercase">Departamentos</p>
             <p className="text-3xl sm:text-4xl font-bold text-accent mt-2">
-              {sectorization.pisos.reduce((acc, p) => acc + p.departamentos.length, 0)}
+              {sectorization.pisos.reduce((acc: number, p: Piso) => acc + p.departamentos.length, 0)}
             </p>
           </div>
         </div>
@@ -65,7 +65,7 @@ export default function SectorizacionDetailPage() {
         <div className="bg-card border border-border rounded-lg p-4 sm:p-6">
           <h2 className="text-lg font-bold text-foreground mb-4">Sectores</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {sectorization.sectores.map(sector => (
+            {sectorization.sectores.map((sector: Sector) => (
               <div key={sector.id} className="flex items-center gap-3 p-3 bg-background border border-border rounded">
                 <div className="w-6 h-6 rounded" style={{ backgroundColor: sector.color }}></div>
                 <div>
@@ -81,7 +81,7 @@ export default function SectorizacionDetailPage() {
         <div className="space-y-4">
           <h2 className="text-lg font-bold text-foreground">Distribución por Piso</h2>
           
-          {sectorization.pisos.map(piso => (
+          {sectorization.pisos.map((piso: Piso) => (
             <div key={piso.id} className="bg-card border border-border rounded-lg p-4 sm:p-6">
               <h3 className="text-lg font-bold text-foreground mb-4">{piso.nombre}</h3>
               
@@ -89,8 +89,8 @@ export default function SectorizacionDetailPage() {
                 <p className="text-sm text-muted-foreground">No hay departamentos asignados</p>
               ) : (
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                  {piso.departamentos.map((dept, idx) => {
-                    const sector = sectorization.sectores.find(s => s.id === dept.sector_id)
+                  {piso.departamentos.map((dept: Departamento, idx: number) => {
+                    const sector = sectorization.sectores.find((s: Sector) => s.id === dept.sector_id)
                     return (
                       <div
                         key={idx}
@@ -114,7 +114,7 @@ export default function SectorizacionDetailPage() {
                 <div className="mt-4 pt-4 border-t border-border">
                   <p className="text-xs font-mono text-muted-foreground mb-2 uppercase">Resumen por sector:</p>
                   <div className="space-y-1">
-                    {sectorization.sectores.map(sector => {
+                    {sectorization.sectores.map((sector: Sector) => {
                       const deptCount = piso.departamentos.filter(d => d.sector_id === sector.id).length
                       const depts = piso.departamentos
                         .filter(d => d.sector_id === sector.id)
@@ -155,15 +155,15 @@ export default function SectorizacionDetailPage() {
                 </tr>
               </thead>
               <tbody>
-                {sectorization.sectores.map(sector => {
+                {sectorization.sectores.map((sector: Sector) => {
                   const totalDepts = sectorization.pisos.reduce(
-                    (acc, p) => acc + p.departamentos.filter(d => d.sector_id === sector.id).length,
+                    (acc: number, p: Piso) => acc + p.departamentos.filter((d: Departamento) => d.sector_id === sector.id).length,
                     0
                   )
                   const pisosCon = new Set(
                     sectorization.pisos
-                      .filter(p => p.departamentos.some(d => d.sector_id === sector.id))
-                      .map(p => p.nombre)
+                      .filter((p: Piso) => p.departamentos.some((d: Departamento) => d.sector_id === sector.id))
+                      .map((p: Piso) => p.nombre)
                   )
                   
                   return (
