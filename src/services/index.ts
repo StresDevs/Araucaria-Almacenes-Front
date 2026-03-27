@@ -1,4 +1,6 @@
 // Single entry point for all API services
+export { authService, usersService } from './endpoints/auth.service'
+export type { LoginPayload, ChangePasswordPayload, CreateUserPayload } from './endpoints/auth.service'
 export { obrasService } from './endpoints/obras.service'
 export type { CreateObraDto, CloseObraDto } from './endpoints/obras.service'
 export { almacenesService } from './endpoints/almacenes.service'

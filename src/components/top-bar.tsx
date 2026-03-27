@@ -1,8 +1,9 @@
 'use client'
 
-import { Warehouse, User, Settings, Moon, Sun, Menu } from 'lucide-react'
+import { Warehouse, User, Settings, Moon, Sun, Menu, LogOut } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
+import { useAuth } from '@/providers/auth-provider'
 
 interface TopBarProps {
   onMenuToggle: () => void
@@ -10,6 +11,7 @@ interface TopBarProps {
 
 export function TopBar({ onMenuToggle }: TopBarProps) {
   const { theme, setTheme } = useTheme()
+  const { user: currentUser, logout } = useAuth()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -63,8 +65,17 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
         <button
           className="p-2 hover:bg-border rounded-lg transition-colors"
           aria-label="Perfil de usuario"
+          title={currentUser?.nombre || 'Usuario'}
         >
           <User className="w-4 h-4 text-muted-foreground" />
+        </button>
+        <button
+          onClick={logout}
+          className="p-2 hover:bg-red-500/10 rounded-lg transition-colors hidden sm:flex"
+          aria-label="Cerrar sesión"
+          title="Cerrar sesión"
+        >
+          <LogOut className="w-4 h-4 text-muted-foreground" />
         </button>
       </div>
     </header>

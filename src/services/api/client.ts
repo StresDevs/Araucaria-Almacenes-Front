@@ -66,6 +66,14 @@ async function request<TResponse, TBody = unknown>(
         statusCode: response.status,
         success: false,
       }))
+
+      // Si el token expiró o es inválido, limpiar sesión y redirigir a login
+      if (response.status === 401 && typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('auth_user')
+        window.location.href = '/login'
+      }
+
       throw new HttpError(
         response.status,
         errorBody.message,

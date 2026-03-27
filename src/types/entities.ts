@@ -1,5 +1,44 @@
 // Core domain entities for the Araucaria Almacenes system
 
+// ─── Auth & Usuarios ─────────────────────────────────────────────────────────
+
+export type UserRole = 'administrador' | 'supervisor_almacen' | 'lectura'
+
+export interface AuthUser {
+  id: string
+  nombre: string
+  email: string
+  rol: UserRole
+  debeCambiarPassword: boolean
+}
+
+export interface LoginResponse {
+  token: string
+  user: AuthUser
+}
+
+export interface UserListItem {
+  id: string
+  nombre: string
+  nombres: string
+  primerApellido: string
+  segundoApellido: string | null
+  email: string
+  telefono: string | null
+  rol: UserRole
+  activo: boolean
+  debeCambiarPassword: boolean
+  createdAt: string
+}
+
+export interface CreateUserResponse {
+  id: string
+  nombre: string
+  email: string
+  rol: UserRole
+  temporaryPassword: string
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
 export interface MetricCard {
