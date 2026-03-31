@@ -1,6 +1,7 @@
 import { apiClient } from '@/services/api/client'
 import type { ApiResponse } from '@/types/api'
 import type { ObraSectorizacion, SectorizacionArchivo } from '@/types/entities'
+import { env } from '@/lib/env'
 
 export interface CreateSectorizacionDto {
   obraId: string
@@ -21,14 +22,6 @@ export interface UpdateSectorizacionDto {
     orden?: number
     departamentos: Array<{ letra: string; nombre?: string; sectorNumero: number }>
   }>
-}
-
-export interface AddArchivoDto {
-  nombreOriginal: string
-  nombreArchivo: string
-  url: string
-  mimetype: string
-  tamanio: number
 }
 
 interface ListResponse {
@@ -61,8 +54,41 @@ export const sectorizacionService = {
     return apiClient.patch(`/sectorizacion/${id}/toggle-active`, {})
   },
 
-  addArchivo(id: string, dto: AddArchivoDto): Promise<ApiResponse<SectorizacionArchivo>> {
-    return apiClient.post(`/sectorizacion/${id}/archivos`, dto)
+  /** Upload real files via multipart/form-data */
+  async uploadArchivos(
+    sectorizacionId: string,
+    files: File[],
+  ): Promise<ApiResponse<SectorizacionArchivo[]>> {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('archivos', file))
+
+    const token =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('auth_token')
+        : null
+
+    const res = await fetch(
+      `${env.apiUrl}/sectorizacion/${sectorizacionId}/archivos/upload`,
+      {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      },
+    )
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: res.statusText }))
+      throw new Error(err.message || 'Error al subir archivos')
+    }
+
+    return res.json()
+  },
+
+  /** Build the download URL for a given archivo */
+  getDownloadUrl(archivoId: string): string {
+    return `${env.apiUrl}/sectorizacion/archivos/${archivoId}/download`
   },
 
   removeArchivo(archivoId: string): Promise<ApiResponse<void>> {

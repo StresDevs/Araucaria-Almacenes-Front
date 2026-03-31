@@ -12,7 +12,7 @@ import type { ObraSectorizacion } from '@/types'
 
 export default function SectorizacionPage() {
   const router = useRouter()
-  const { items, desactivadas, isLoading, error, create, update, toggleActive, addArchivo, refetch } = useSectorizacion()
+  const { items, desactivadas, isLoading, error, create, update, toggleActive, uploadArchivos, refetch } = useSectorizacion()
   const { obras } = useObras()
   const [wizardOpen, setWizardOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<ObraSectorizacion | null>(null)
@@ -25,15 +25,9 @@ export default function SectorizacionPage() {
   )
 
   const uploadFiles = async (sectorizacionId: string, files: WizardFile[]) => {
-    for (const wf of files) {
-      await addArchivo(sectorizacionId, {
-        nombreOriginal: wf.file.name,
-        nombreArchivo: wf.file.name,
-        url: '',
-        mimetype: wf.file.type || 'application/pdf',
-        tamanio: wf.file.size,
-      })
-    }
+    if (files.length === 0) return
+    const realFiles = files.map((wf) => wf.file)
+    await uploadArchivos(sectorizacionId, realFiles)
   }
 
   const handleCreate = async (obraId: string, data: { sectores: any[]; pisos: any[] }, files: WizardFile[]) => {

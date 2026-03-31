@@ -4,14 +4,15 @@ import { useParams } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { AppShell } from '@/components/app-shell'
-import { ChevronLeft, Loader2, FileText, Download, Trash2, Upload } from 'lucide-react'
+import { ChevronLeft, Loader2, FileText, Download, Trash2, Upload, ImageIcon } from 'lucide-react'
 import { useSectorizacion } from '@/hooks/use-sectorizacion'
+import { sectorizacionService } from '@/services'
 import type { ObraSectorizacion, Piso, Sector, Departamento, SectorizacionArchivo } from '@/types'
 
 export default function SectorizacionDetailPage() {
   const params = useParams()
   const id = params.id as string
-  const { getById, addArchivo, removeArchivo } = useSectorizacion()
+  const { getById, uploadArchivos, removeArchivo } = useSectorizacion()
   const [sectorization, setSectorization] = useState<ObraSectorizacion | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -28,26 +29,19 @@ export default function SectorizacionDetailPage() {
 
   const handleAddArchivo = async () => {
     if (!sectorization) return
-    // Simulate file selection – In a real implementation you'd use a file input
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.pdf'
+    input.accept = '.pdf,.jpg,.jpeg,.png,.webp,.gif'
+    input.multiple = true
     input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      if (!file) return
+      const fileList = (e.target as HTMLInputElement).files
+      if (!fileList || fileList.length === 0) return
       setUploading(true)
-      // For now we create a mock URL since we don't have file upload backend
-      const dto = {
-        nombreOriginal: file.name,
-        nombreArchivo: `${Date.now()}_${file.name}`,
-        url: `/uploads/${Date.now()}_${file.name}`,
-        mimetype: file.type || 'application/pdf',
-        tamanio: file.size,
-      }
-      const result = await addArchivo(sectorization.id, dto)
+      const files = Array.from(fileList)
+      const result = await uploadArchivos(sectorization.id, files)
       if (result) {
         setSectorization((prev) =>
-          prev ? { ...prev, archivos: [...prev.archivos, result] } : prev,
+          prev ? { ...prev, archivos: [...prev.archivos, ...result] } : prev,
         )
       }
       setUploading(false)
@@ -283,7 +277,7 @@ export default function SectorizacionDetailPage() {
                 className="flex items-center gap-2 px-3 py-1.5 bg-accent text-background rounded hover:bg-accent/90 transition-colors text-sm font-medium disabled:opacity-50"
               >
                 {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                Subir PDF
+                Subir Archivos
               </button>
             )}
           </div>
@@ -300,7 +294,11 @@ export default function SectorizacionDetailPage() {
                   key={archivo.id}
                   className="flex items-center gap-3 p-3 bg-background border border-border rounded-lg"
                 >
-                  <FileText className="w-8 h-8 text-red-400 flex-shrink-0" />
+                  {archivo.mimetype.startsWith('image/') ? (
+                    <ImageIcon className="w-8 h-8 text-blue-400 flex-shrink-0" />
+                  ) : (
+                    <FileText className="w-8 h-8 text-red-400 flex-shrink-0" />
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">{archivo.nombre_original}</p>
                     <p className="text-xs text-muted-foreground">
@@ -309,7 +307,7 @@ export default function SectorizacionDetailPage() {
                   </div>
                   <div className="flex gap-2">
                     <a
-                      href={archivo.url}
+                      href={sectorizacionService.getDownloadUrl(archivo.id)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 hover:bg-border rounded transition-colors"

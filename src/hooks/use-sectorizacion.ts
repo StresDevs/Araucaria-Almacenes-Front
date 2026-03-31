@@ -5,7 +5,6 @@ import {
   sectorizacionService,
   type CreateSectorizacionDto,
   type UpdateSectorizacionDto,
-  type AddArchivoDto,
 } from '@/services'
 import { HttpError } from '@/services'
 import type { ObraSectorizacion, SectorizacionArchivo } from '@/types'
@@ -99,10 +98,10 @@ export function useSectorizacion() {
     [fetchAll],
   )
 
-  const addArchivo = useCallback(
-    async (id: string, dto: AddArchivoDto): Promise<SectorizacionArchivo | null> => {
+  const uploadArchivos = useCallback(
+    async (id: string, files: File[]): Promise<SectorizacionArchivo[] | null> => {
       try {
-        const res = await sectorizacionService.addArchivo(id, dto)
+        const res = await sectorizacionService.uploadArchivos(id, files)
         await fetchAll()
         return res.data
       } catch {
@@ -135,7 +134,7 @@ export function useSectorizacion() {
     create,
     update,
     toggleActive,
-    addArchivo,
+    uploadArchivos,
     removeArchivo,
   }
 }

@@ -473,15 +473,15 @@ export function SectorizationWizard({
 
           {step === 'archivos' && (
             <div className="space-y-4">
-              <h3 className="text-lg font-bold text-foreground">Archivos PDF</h3>
+              <h3 className="text-lg font-bold text-foreground">Archivos de Respaldo</h3>
               <p className="text-sm text-muted-foreground">
-                Adjunta planos u otros documentos PDF a esta sectorización (opcional)
+                Adjunta planos, fotografías u otros documentos a esta sectorización (opcional)
               </p>
 
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf"
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.gif"
                 multiple
                 className="hidden"
                 onChange={(e) => {
@@ -501,7 +501,7 @@ export function SectorizationWizard({
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-border rounded-lg text-muted-foreground hover:border-accent hover:text-accent transition-colors"
               >
                 <Upload className="w-5 h-5" />
-                Seleccionar archivos PDF
+                Seleccionar archivos (PDF o imágenes)
               </button>
 
               {pdfFiles.length > 0 && (
