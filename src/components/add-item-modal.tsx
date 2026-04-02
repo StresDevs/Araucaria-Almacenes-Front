@@ -164,6 +164,7 @@ interface AddItemForm {
   itemNumero: string
   almacenId: string
   stockInicial: string
+  stockMinimo: string
 }
 
 const EMPTY_FORM: AddItemForm = {
@@ -179,6 +180,7 @@ const EMPTY_FORM: AddItemForm = {
   itemNumero: '',
   almacenId: '',
   stockInicial: '',
+  stockMinimo: '',
 }
 
 // ─── Image helper ─────────────────────────────────────────────────────────────
@@ -386,6 +388,7 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
       ...(form.precioUnitarioBob && { precioUnitarioBob: parseFloat(form.precioUnitarioBob) }),
       ...(form.precioUnitarioUsd && { precioUnitarioUsd: parseFloat(form.precioUnitarioUsd) }),
       ...(form.stockInicial && form.almacenId && { stockInicial: parseInt(form.stockInicial, 10), almacenId: form.almacenId }),
+      ...(form.stockMinimo && { stockMinimo: parseInt(form.stockMinimo, 10) }),
     }
     const ok = await onAdd(dto)
     setSubmitting(false)
@@ -676,6 +679,21 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
                 />
               </div>
+            </div>
+
+            {/* Stock mínimo */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Stock Mínimo (opcional)</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={form.stockMinimo}
+                onChange={(e) => setForm((p) => ({ ...p, stockMinimo: e.target.value }))}
+                placeholder="0"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Se mostrará una alerta cuando el stock total sea menor o igual a este valor.</p>
             </div>
 
             <div className="sm:col-span-2 space-y-3">

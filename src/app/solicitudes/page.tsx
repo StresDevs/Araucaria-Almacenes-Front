@@ -256,6 +256,7 @@ export default function SolicitudesPage() {
   const [searchItem, setSearchItem] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [fechaEntrega, setFechaEntrega] = useState(() => new Date().toISOString().split('T')[0])
 
   // ── API data state ──
   const [contratistas, setContratistas] = useState<Contratista[]>([])
@@ -302,7 +303,9 @@ export default function SolicitudesPage() {
   const fetchCatalogItems = useCallback(async () => {
     setCatalogLoading(true)
     try {
-      const res = await solicitudesService.getItemsDisponibles()
+      const res = await solicitudesService.getItemsDisponibles(
+        selectedObraId ? { obraId: selectedObraId } : undefined,
+      )
       setCatalogItems(res.data)
     } catch (err) {
       const msg = err instanceof HttpError ? err.message : 'Error al cargar materiales'
@@ -310,7 +313,7 @@ export default function SolicitudesPage() {
     } finally {
       setCatalogLoading(false)
     }
-  }, [toast])
+  }, [toast, selectedObraId])
 
   useEffect(() => {
     if (formStep === 'materiales') {
@@ -521,8 +524,15 @@ export default function SolicitudesPage() {
         piso: composedPiso,
         departamento: composedDepartamento || undefined,
         items: cart.map((c) => ({ itemId: c.id, cantidad: c.cantidad })),
+        fechaEntrega: fechaEntrega || undefined,
       })
-      toast({ title: 'Orden registrada', description: 'La orden de entrega fue creada exitosamente' })
+      const esPasada = fechaEntrega && fechaEntrega < new Date().toISOString().split('T')[0]
+      toast({
+        title: esPasada ? 'Orden pendiente de aprobación' : 'Orden registrada',
+        description: esPasada
+          ? 'La fecha es anterior a hoy, se envió a aprobaciones para su revisión'
+          : 'La orden de entrega fue creada exitosamente',
+      })
       setSubmitted(true)
     } catch (err) {
       const msg = err instanceof HttpError ? err.message : 'Error al crear la orden'
@@ -545,6 +555,7 @@ export default function SolicitudesPage() {
     setSectorizacion(null)
     setCart([])
     setSearchItem('')
+    setFechaEntrega(new Date().toISOString().split('T')[0])
     setSubmitted(false)
   }
 
@@ -1303,6 +1314,29 @@ export default function SolicitudesPage() {
                         <span className="text-sm font-bold text-foreground">
                           {cart.reduce((s, c) => s + c.cantidad, 0)}
                         </span>
+                      </div>
+                    </div>
+
+                    {/* Fecha de entrega */}
+                    <div className="md:col-span-2">
+                      <div className="bg-border/10 border border-border rounded-xl p-4 space-y-3">
+                        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-accent" /> Fecha de Entrega
+                        </h3>
+                        <input
+                          type="date"
+                          value={fechaEntrega}
+                          onChange={(e) => setFechaEntrega(e.target.value)}
+                          className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+                        />
+                        {fechaEntrega && fechaEntrega < new Date().toISOString().split('T')[0] && (
+                          <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-lg px-3 py-2">
+                            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                            <p className="text-xs leading-relaxed">
+                              La fecha seleccionada es anterior a hoy. Esta orden será enviada a <strong>aprobaciones</strong> para su revisión antes de descontar stock.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

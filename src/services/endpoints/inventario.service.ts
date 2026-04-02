@@ -16,6 +16,7 @@ export interface CreateItemDto {
   precioUnitarioUsd?: number
   stockInicial?: number
   almacenId?: string
+  stockMinimo?: number
 }
 
 export interface UpdateItemDto {
@@ -29,6 +30,7 @@ export interface UpdateItemDto {
   proveedorId?: string
   precioUnitarioBob?: number
   precioUnitarioUsd?: number
+  stockMinimo?: number
 }
 
 export interface SetAlmacenStockDto {
