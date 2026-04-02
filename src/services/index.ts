@@ -12,7 +12,7 @@ export type { CreateCategoriaDto, UpdateCategoriaDto } from './endpoints/categor
 export { proveedoresService } from './endpoints/proveedores.service'
 export type { CreateProveedorDto, UpdateProveedorDto } from './endpoints/proveedores.service'
 export { prestamosService } from './endpoints/prestamos.service'
-export type { CreatePrestamoDto, GetPrestamosParams } from './endpoints/prestamos.service'
+export type { CreatePrestamoPayload, DevolverPrestamoPayload, GetPrestamosParams } from './endpoints/prestamos.service'
 export { solicitudesService } from './endpoints/solicitudes.service'
 export type { CreateSolicitudDto, CreateContratistaDto, ItemDisponible } from './endpoints/solicitudes.service'
 export { transferenciasService } from './endpoints/transferencias.service'

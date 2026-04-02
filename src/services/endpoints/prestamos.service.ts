@@ -1,42 +1,51 @@
 import { apiClient } from '@/services/api/client'
-import type { ApiPaginatedResponse, ApiResponse, PaginationParams } from '@/types/api'
-import type { Prestamo } from '@/types/entities'
+import type { ApiResponse } from '@/types/api'
+import type { PrestamoRegistro, EstadoPrestamo } from '@/types/entities'
 
-export interface CreatePrestamoDto {
-  item: string
-  obra: string
-  fecha_inicio: string
-  fecha_vencimiento: string
-  responsable: string
+export interface CreatePrestamoPayload {
+  itemId: string
+  cantidad: number
+  personaPrestamo: string
+  obraId?: string
+  seccion?: string
+  contratistaId?: string
+  notas?: string
 }
 
-export interface GetPrestamosParams extends PaginationParams {
-  estado?: Prestamo['estado']
-  obra?: string
+export interface DevolverPrestamoPayload {
+  estado?: 'devuelto' | 'consumido'
+  notas?: string
+}
+
+export interface GetPrestamosParams {
+  estado?: EstadoPrestamo
+  obraId?: string
   search?: string
 }
 
 export const prestamosService = {
-  getAll(params?: GetPrestamosParams): Promise<ApiPaginatedResponse<Prestamo>> {
+  getAll(params?: GetPrestamosParams): Promise<ApiResponse<PrestamoRegistro[]>> {
     const query = new URLSearchParams()
     if (params?.estado) query.set('estado', params.estado)
-    if (params?.obra) query.set('obra', params.obra)
+    if (params?.obraId) query.set('obraId', params.obraId)
     if (params?.search) query.set('search', params.search)
-    if (params?.page) query.set('page', String(params.page))
-    if (params?.pageSize) query.set('pageSize', String(params.pageSize))
     const qs = query.toString()
     return apiClient.get(`/prestamos${qs ? `?${qs}` : ''}`)
   },
 
-  create(dto: CreatePrestamoDto): Promise<ApiResponse<Prestamo>> {
+  getById(id: string): Promise<ApiResponse<PrestamoRegistro>> {
+    return apiClient.get(`/prestamos/${id}`)
+  },
+
+  getStats(): Promise<ApiResponse<{ prestados: number; devueltos: number; consumidos: number }>> {
+    return apiClient.get('/prestamos/stats')
+  },
+
+  create(dto: CreatePrestamoPayload): Promise<ApiResponse<PrestamoRegistro>> {
     return apiClient.post('/prestamos', dto)
   },
 
-  markReturned(id: string): Promise<ApiResponse<Prestamo>> {
-    return apiClient.patch(`/prestamos/${id}/devolver`)
-  },
-
-  delete(id: string): Promise<ApiResponse<void>> {
-    return apiClient.delete(`/prestamos/${id}`)
+  devolver(id: string, dto?: DevolverPrestamoPayload): Promise<ApiResponse<PrestamoRegistro>> {
+    return apiClient.patch(`/prestamos/${id}/devolver`, dto || {})
   },
 }
