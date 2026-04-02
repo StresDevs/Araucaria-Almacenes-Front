@@ -26,4 +26,9 @@ export const aprobacionesService = {
   rechazar(id: string, notasRevision?: string): Promise<ApiResponse<SolicitudAprobacion>> {
     return apiClient.patch(`/aprobaciones/${id}/rechazar`, { notasRevision })
   },
+
+  /** Re-appeal a rejected entrega retroactiva */
+  reapelar(id: string): Promise<ApiResponse<SolicitudAprobacion>> {
+    return apiClient.patch(`/aprobaciones/${id}/reapelar`, {})
+  },
 }

@@ -9,7 +9,7 @@ import { aprobacionesService, HttpError } from '@/services'
 import {
   ShieldCheck, Trash2, Edit3, ArrowLeftRight, Clock, Check, XCircle,
   ChevronDown, AlertTriangle, Image as ImageIcon,
-  User, Calendar, Filter, Loader2,
+  User, Calendar, Filter, Loader2, Package, RotateCcw,
 } from 'lucide-react'
 import type {
   SolicitudAprobacion,
@@ -37,6 +37,12 @@ const TIPO_CONFIG: Record<TipoSolicitudAprobacion, { label: string; icon: typeof
     icon: ArrowLeftRight,
     color: 'text-purple-400',
     bgColor: 'bg-purple-900/20 border-purple-600/30',
+  },
+  entrega_retroactiva: {
+    label: 'Entrega Retroactiva',
+    icon: Package,
+    color: 'text-orange-400',
+    bgColor: 'bg-orange-900/20 border-orange-600/30',
   },
 }
 
@@ -105,6 +111,7 @@ export default function AprobacionesPage() {
   const bajasPendientes = allSolicitudes.filter(s => s.tipo === 'baja_producto' && s.estado === 'pendiente').length
   const stockPendientes = allSolicitudes.filter(s => s.tipo === 'edicion_stock' && s.estado === 'pendiente').length
   const transfPendientes = allSolicitudes.filter(s => s.tipo === 'transferencia_atrasada' && s.estado === 'pendiente').length
+  const entregaPendientes = allSolicitudes.filter(s => s.tipo === 'entrega_retroactiva' && s.estado === 'pendiente').length
 
   // Handlers
   const handleAprobar = async (id: string) => {
@@ -145,6 +152,21 @@ export default function AprobacionesPage() {
     return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })
   }
 
+  const handleReapelar = async (id: string) => {
+    setActionLoading(id)
+    try {
+      await aprobacionesService.reapelar(id)
+      toast({ title: 'Re-apelada', description: 'La solicitud fue enviada nuevamente para revisión' })
+      setExpandedId(null)
+      fetchSolicitudes()
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al re-apelar'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   const formatDateTime = (iso: string) => {
     const d = new Date(iso)
     return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -165,7 +187,7 @@ export default function AprobacionesPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
             <div className="flex items-center gap-2 mb-1">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
@@ -194,6 +216,13 @@ export default function AprobacionesPage() {
             </div>
             <p className="text-2xl sm:text-3xl font-bold text-purple-400">{transfPendientes}</p>
           </div>
+          <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Package className="w-3.5 h-3.5 text-orange-400" />
+              <p className="text-xs text-muted-foreground font-mono uppercase">Entregas</p>
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-orange-400">{entregaPendientes}</p>
+          </div>
         </div>
 
         {/* Filters */}
@@ -206,7 +235,7 @@ export default function AprobacionesPage() {
             <div className="flex-1">
               <p className="text-xs text-muted-foreground mb-1.5">Tipo de solicitud</p>
               <div className="flex gap-1.5 flex-wrap">
-                {(['todos', 'baja_producto', 'edicion_stock', 'transferencia_atrasada'] as const).map(t => {
+                {(['todos', 'baja_producto', 'edicion_stock', 'transferencia_atrasada', 'entrega_retroactiva'] as const).map(t => {
                   const label = t === 'todos' ? 'Todos' : TIPO_CONFIG[t].label
                   return (
                     <button
@@ -422,6 +451,60 @@ export default function AprobacionesPage() {
                         </div>
                       )}
 
+                      {sol.tipo === 'entrega_retroactiva' && (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Obra</p>
+                              <p className="text-sm text-foreground">{sol.entrega_obra ?? '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Contratista</p>
+                              <p className="text-sm text-foreground">{sol.entrega_contratista ?? '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Título</p>
+                              <p className="text-sm text-foreground font-medium">{sol.entrega_titulo ?? '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">Fecha de entrega</p>
+                              <p className="text-sm text-orange-400 font-bold">{sol.entrega_fecha ? formatDate(sol.entrega_fecha) : '—'}</p>
+                            </div>
+                          </div>
+                          {sol.entrega_items && sol.entrega_items.length > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1.5">Materiales solicitados</p>
+                              <div className="border border-border rounded-lg overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-border/20">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left text-xs font-semibold text-foreground">Código</th>
+                                      <th className="px-3 py-2 text-left text-xs font-semibold text-foreground">Descripción</th>
+                                      <th className="px-3 py-2 text-right text-xs font-semibold text-foreground">Cant.</th>
+                                      <th className="px-3 py-2 text-left text-xs font-semibold text-foreground">Unidad</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-border">
+                                    {sol.entrega_items.map((it: { codigo: string; descripcion: string; cantidad: number; unidad: string }, i: number) => (
+                                      <tr key={i}>
+                                        <td className="px-3 py-2 font-mono text-xs text-accent">{it.codigo}</td>
+                                        <td className="px-3 py-2 text-foreground">{it.descripcion}</td>
+                                        <td className="px-3 py-2 text-right font-bold text-foreground">{it.cantidad}</td>
+                                        <td className="px-3 py-2 text-muted-foreground">{it.unidad}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div className="flex justify-between mt-2 px-1">
+                                <span className="text-xs text-muted-foreground">Total ítems: {sol.entrega_total_items ?? sol.entrega_items.length}</span>
+                                <span className="text-xs text-muted-foreground">Total unidades: {sol.entrega_total_unidades ?? sol.entrega_items.reduce((s: number, it: { cantidad: number }) => s + it.cantidad, 0)}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Audit info */}
                       <div className="pt-3 border-t border-border/50 grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="flex items-center gap-2">
@@ -528,6 +611,24 @@ export default function AprobacionesPage() {
                               </button>
                             </div>
                           )}
+                        </div>
+                      )}
+
+                      {/* Re-appeal for rejected entries */}
+                      {sol.estado === 'rechazada' && (
+                        <div className="pt-3 border-t border-border/50 flex justify-end">
+                          <button
+                            onClick={() => handleReapelar(sol.id)}
+                            disabled={actionLoading === sol.id}
+                            className="flex items-center gap-2 px-4 py-2.5 border border-orange-500/40 text-orange-400 rounded-lg text-sm font-medium hover:bg-orange-900/20 transition-colors disabled:opacity-40"
+                          >
+                            {actionLoading === sol.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <RotateCcw className="w-4 h-4" />
+                            )}
+                            Re-apelar
+                          </button>
                         </div>
                       )}
                     </div>

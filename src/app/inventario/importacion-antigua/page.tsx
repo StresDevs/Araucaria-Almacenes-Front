@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react'
 import { AppShell } from '@/components/app-shell'
-import { Search, ChevronDown, Plus, Loader2, PackagePlus, Trash2 } from 'lucide-react'
+import { Search, ChevronDown, Plus, Loader2, PackagePlus, Trash2, AlertTriangle } from 'lucide-react'
 import { AddItemModal } from '@/components/add-item-modal'
 import { StockEntryModal } from '@/components/stock-entry-modal'
 import { useInventario } from '@/hooks/use-inventario'
@@ -195,7 +195,12 @@ export default function ImportacionAntiguaPage() {
                           <span className="inline-block px-2 py-0.5 rounded text-xs bg-muted text-foreground">{item.categoria_nombre ?? '—'}</span>
                         </td>
                         <td className="px-3 py-3 text-foreground text-xs">{item.unidad}</td>
-                        <td className="px-3 py-3 font-bold text-accent text-sm">{item.stock_total}</td>
+                        <td className={`px-3 py-3 font-bold text-sm ${item.stock_minimo > 0 && item.stock_total <= item.stock_minimo ? 'text-red-400' : 'text-accent'}`}>
+                          {item.stock_total}
+                          {item.stock_minimo > 0 && item.stock_total <= item.stock_minimo && (
+                            <AlertTriangle className="w-3.5 h-3.5 inline ml-1 text-red-400" />
+                          )}
+                        </td>
                         <td className="px-3 py-3 text-foreground text-xs hidden lg:table-cell">{item.rendimiento ?? ''}</td>
                         <td className="px-3 py-3">
                           <div className="flex items-center justify-center gap-1">

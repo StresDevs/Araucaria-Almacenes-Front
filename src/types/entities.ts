@@ -98,6 +98,7 @@ export interface ItemInventario {
   precio_unitario_usd: number | null
   foto_url: string | null
   stock_total: number
+  stock_minimo: number
   activo: boolean
   ubicaciones: ItemUbicacion[]
   created_at: string
@@ -236,6 +237,8 @@ export interface OrdenEntrega {
   items: OrdenEntregaItem[]
   total_items: number
   total_unidades: number
+  estado?: string
+  fecha_entrega?: string
   creado_por: string
   created_at: string
 }
@@ -344,6 +347,7 @@ export type TipoSolicitudAprobacion =
   | 'baja_producto'
   | 'edicion_stock'
   | 'transferencia_atrasada'
+  | 'entrega_retroactiva'
 
 export type EstadoAprobacion = 'pendiente' | 'aprobada' | 'rechazada'
 
@@ -374,6 +378,15 @@ export interface SolicitudAprobacion {
   fecha_transferencia?: string
   fecha_registro?: string
   items_transferencia?: { codigo: string; descripcion: string; cantidad: number; unidad: string }[]
+  // Data for entrega retroactiva
+  solicitud_ref_id?: string
+  entrega_obra?: string
+  entrega_contratista?: string
+  entrega_titulo?: string
+  entrega_fecha?: string
+  entrega_items?: { codigo: string; descripcion: string; cantidad: number; unidad: string }[]
+  entrega_total_items?: number
+  entrega_total_unidades?: number
 }
 
 // ─── Bajas ────────────────────────────────────────────────────────────────────

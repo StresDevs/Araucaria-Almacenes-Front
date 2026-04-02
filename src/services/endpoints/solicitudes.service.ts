@@ -12,6 +12,7 @@ export interface CreateSolicitudDto {
   sector: string
   piso: string
   departamento?: string
+  fechaEntrega?: string
   items: Array<{ itemId: string; cantidad: number }>
 }
 
