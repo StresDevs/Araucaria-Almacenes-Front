@@ -2,18 +2,23 @@
 
 import React, { useState, useMemo } from 'react'
 import { AppShell } from '@/components/app-shell'
-import { Search, ChevronDown, Plus, Loader2, PackagePlus, Trash2 } from 'lucide-react'
+import { Search, ChevronDown, Plus, Loader2, PackagePlus, Pencil, Trash2 } from 'lucide-react'
 import { AddItemModal } from '@/components/add-item-modal'
+import { EditItemModal } from '@/components/edit-item-modal'
 import { StockEntryModal } from '@/components/stock-entry-modal'
 import { useInventario } from '@/hooks/use-inventario'
 import { useCategorias } from '@/hooks/use-categorias'
 import { useAlmacenes } from '@/hooks/use-almacenes'
+import { useAuth } from '@/providers/auth-provider'
+import { useToast } from '@/hooks/use-toast'
+import { aprobacionesService, HttpError } from '@/services'
 import type { ItemInventario } from '@/types'
+import type { UpdateItemDto } from '@/services/endpoints/inventario.service'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? ''
 
 function getItemImage(item: ItemInventario): string {
-  if (item.foto_url) return `${API_BASE}${item.foto_url}`
+  if (item.foto_url) return `${API_BASE}/${item.foto_url}`
   const d = ((item.descripcion ?? '') + ' ' + item.codigo).toLowerCase()
   if (d.includes('porcelanato') || d.includes('mosaico') || d.includes('cristal')) return '/items/porcelanato.jpg'
   if (d.includes('puerta') || d.includes('door') || d.includes('flush')) return '/items/puerta.jpg'
@@ -23,14 +28,17 @@ function getItemImage(item: ItemInventario): string {
 }
 
 export default function ImportacionAntiguaPage() {
-  const { items, isLoading, error, createItem, deleteItem, createEntradaStock } = useInventario('importacion_antigua')
+  const { items, isLoading, error, createItem, updateItem, uploadFoto, deleteItem, createEntradaStock } = useInventario('importacion_antigua')
   const { categorias } = useCategorias()
   const { almacenes } = useAlmacenes()
+  const { user } = useAuth()
+  const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategoria, setSelectedCategoria] = useState('')
   const [selectedAlmacen, setSelectedAlmacen] = useState('')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [modalOpen, setModalOpen] = useState(false)
+  const [editItem, setEditItem] = useState<ItemInventario | null>(null)
   const [stockEntryItem, setStockEntryItem] = useState<ItemInventario | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -80,6 +88,18 @@ export default function ImportacionAntiguaPage() {
 
   const handleStockEntry = async (itemId: string, almacenId: string, cantidad: number, descripcion?: string) => {
     return createEntradaStock(itemId, { almacenId, cantidad, descripcion })
+  }
+
+  const handleSubmitForApproval = async (itemId: string, justificacion: string, cambios: UpdateItemDto): Promise<boolean> => {
+    try {
+      await aprobacionesService.crearEdicionInventario({ itemId, justificacion, cambios })
+      toast({ title: 'Solicitud enviada', description: 'Tu edición fue enviada para aprobación del administrador' })
+      return true
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al enviar la solicitud'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+      return false
+    }
   }
 
   const hasFilters = searchTerm || selectedCategoria || selectedAlmacen
@@ -200,6 +220,13 @@ export default function ImportacionAntiguaPage() {
                         <td className="px-3 py-3">
                           <div className="flex items-center justify-center gap-1">
                             <button
+                              onClick={() => setEditItem(item)}
+                              title="Editar ítem"
+                              className="p-1.5 rounded hover:bg-amber-500/20 text-amber-400 transition-colors"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={() => setStockEntryItem(item)}
                               title="Registrar entrada"
                               className="p-1.5 rounded hover:bg-accent/20 text-accent transition-colors"
@@ -266,6 +293,17 @@ export default function ImportacionAntiguaPage() {
         inventoryType="antigua"
         categorias={categorias}
         almacenes={almacenes}
+      />
+
+      <EditItemModal
+        isOpen={!!editItem}
+        onClose={() => setEditItem(null)}
+        onSave={updateItem}
+        onUploadFoto={uploadFoto}
+        onSubmitForApproval={handleSubmitForApproval}
+        item={editItem}
+        categorias={categorias}
+        userRole={user?.rol}
       />
 
       <StockEntryModal

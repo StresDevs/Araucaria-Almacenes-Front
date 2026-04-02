@@ -1,29 +1,58 @@
-import { apiClient } from '@/services/api/client'
-import type { ApiResponse } from '@/types/api'
-import type { SolicitudAprobacion } from '@/types/entities'
+import { apiClient } from '../api/client'
+import type { SolicitudAprobacion, TipoSolicitudAprobacion, EstadoAprobacion } from '@/types'
+
+export interface CrearEdicionInventarioPayload {
+  itemId: string
+  justificacion: string
+  cambios: {
+    categoriaId?: string
+    itemNumero?: string
+    codigo?: string
+    nombre?: string
+    descripcion?: string
+    unidad?: string
+    rendimiento?: string
+    proveedorId?: string
+    precioUnitarioBob?: number
+    precioUnitarioUsd?: number
+  }
+}
 
 export const aprobacionesService = {
-  /** Get all solicitudes for admin review */
-  getAll(tipo?: string, estado?: string): Promise<ApiResponse<SolicitudAprobacion[]>> {
+  /** GET /aprobaciones with optional filters */
+  getAll(
+    tipo?: 'todos' | TipoSolicitudAprobacion,
+    estado?: 'todos' | EstadoAprobacion,
+  ) {
     const params = new URLSearchParams()
-    if (tipo && tipo !== 'todos') params.append('tipo', tipo)
-    if (estado && estado !== 'todos') params.append('estado', estado)
+    if (tipo && tipo !== 'todos') params.set('tipo', tipo)
+    if (estado && estado !== 'todos') params.set('estado', estado)
     const qs = params.toString()
-    return apiClient.get(`/aprobaciones${qs ? `?${qs}` : ''}`)
+    return apiClient.get<{ success: boolean; data: SolicitudAprobacion[] }>(
+      `/aprobaciones${qs ? `?${qs}` : ''}`,
+    )
   },
 
-  /** Get one by id */
-  getById(id: string): Promise<ApiResponse<SolicitudAprobacion>> {
-    return apiClient.get(`/aprobaciones/${id}`)
+  /** PATCH /aprobaciones/:id/aprobar */
+  aprobar(id: string) {
+    return apiClient.patch<{ success: boolean; data: SolicitudAprobacion; message: string }>(
+      `/aprobaciones/${id}/aprobar`,
+    )
   },
 
-  /** Approve a solicitud */
-  aprobar(id: string): Promise<ApiResponse<SolicitudAprobacion>> {
-    return apiClient.patch(`/aprobaciones/${id}/aprobar`, {})
+  /** PATCH /aprobaciones/:id/rechazar */
+  rechazar(id: string, notasRevision?: string) {
+    return apiClient.patch<{ success: boolean; data: SolicitudAprobacion; message: string }>(
+      `/aprobaciones/${id}/rechazar`,
+      { notasRevision },
+    )
   },
 
-  /** Reject a solicitud */
-  rechazar(id: string, notasRevision?: string): Promise<ApiResponse<SolicitudAprobacion>> {
-    return apiClient.patch(`/aprobaciones/${id}/rechazar`, { notasRevision })
+  /** POST /aprobaciones/edicion-inventario */
+  crearEdicionInventario(payload: CrearEdicionInventarioPayload) {
+    return apiClient.post<{ success: boolean; data: SolicitudAprobacion; message: string }>(
+      '/aprobaciones/edicion-inventario',
+      payload,
+    )
   },
 }
