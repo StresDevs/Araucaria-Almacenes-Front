@@ -357,6 +357,7 @@ export interface SolicitudAprobacion {
   estado: EstadoAprobacion
   revisado_por?: string
   fecha_revision?: string
+  notas_revision?: string
   // Data for baja
   item_codigo?: string
   item_descripcion?: string

@@ -1,14 +1,13 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { AppShell } from '@/components/app-shell'
-import {
-  MOCK_CONTRATISTAS,
-  MOCK_ITEMS_CATALOGO,
-  MOCK_OBRAS,
-  MOCK_ORDENES_ENTREGA,
-} from '@/lib/constants'
-import type { Contratista, OrdenEntrega } from '@/types'
+import { solicitudesService, sectorizacionService, type ItemDisponible } from '@/services'
+import { useObras } from '@/hooks/use-obras'
+import { useToast } from '@/hooks/use-toast'
+import { useAuth } from '@/providers/auth-provider'
+import { HttpError } from '@/services'
+import type { Contratista, OrdenEntrega, ObraSectorizacion, Sector, Piso, Departamento } from '@/types'
 import {
   Search,
   Plus,
@@ -31,6 +30,8 @@ import {
   SlidersHorizontal,
   Check,
   Warehouse,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -45,7 +46,6 @@ interface CartItem {
   cantidad: number
   unidad: string
   stock_disponible: number
-  categoria: 'Materiales' | 'Herramientas' | 'Indumentaria'
   almacen_nombre: string
 }
 
@@ -59,54 +59,45 @@ const STEP_LABELS: Record<FormStep, string> = {
   resumen: 'Resumen',
 }
 
-const TIPOS_TRABAJO = [
-  'Pintura interior',
-  'Pintura exterior',
-  'Obra gris',
-  'Instalación eléctrica',
-  'Plomería',
-  'Soldadura estructural',
-  'Carpintería',
-  'Albañilería',
-  'Acabados',
-  'Impermeabilización',
-  'Otro',
-]
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// ─── Helper: classify item by code ────────────────────────────────────────────
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
 
-function getCategoria(codigo: string): 'Materiales' | 'Herramientas' | 'Indumentaria' {
-  if (codigo.includes('ANDAMIO') || codigo.includes('HILTI')) return 'Herramientas'
-  if (codigo.includes('CASCO') || codigo.includes('CHALECO') || codigo.includes('GUANTES')) return 'Indumentaria'
-  return 'Materiales'
+function csvField(value: string | number | undefined | null): string {
+  const str = value == null ? '' : String(value)
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
 }
 
 // ─── Helper: export to CSV ────────────────────────────────────────────────────
 
 function exportToCSV(ordenes: OrdenEntrega[]) {
-  const header = 'N° Orden,Obra,Contratista,Tipo Trabajo,Título,Sector,Piso,Depto,Duración (días),Items,Unidades,Creado por,Fecha\n'
+  const BOM = '\uFEFF'
+  const sep = ','
+  const header = ['N° Orden', 'Obra', 'Contratista', 'Título', 'Sector', 'Piso', 'Departamento', 'Items', 'Unidades totales', 'Fecha de creación'].map(csvField).join(sep)
   const rows = ordenes.map((o) =>
     [
       o.numero_orden,
-      `"${o.obra_nombre}"`,
-      `"${o.contratista_nombre}"`,
-      `"${o.tipo_trabajo}"`,
-      `"${o.titulo}"`,
-      `"${o.sector}"`,
-      `"${o.piso}"`,
-      `"${o.departamento}"`,
-      o.duracion_dias,
+      o.obra_nombre,
+      o.contratista_nombre,
+      o.titulo,
+      o.sector,
+      o.piso,
+      o.departamento || '',
       o.total_items,
       o.total_unidades,
-      `"${o.creado_por}"`,
-      new Date(o.created_at).toLocaleDateString('es-MX'),
-    ].join(',')
-  ).join('\n')
-  const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' })
+      new Date(o.created_at).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    ].map(csvField).join(sep)
+  ).join('\r\n')
+  const blob = new Blob([BOM + header + '\r\n' + rows], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `ordenes_entrega_${new Date().toISOString().split('T')[0]}.csv`
+  a.download = `Ordenes_Entrega_${new Date().toISOString().split('T')[0]}.csv`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -114,42 +105,124 @@ function exportToCSV(ordenes: OrdenEntrega[]) {
 // ─── Helper: export to printable HTML (PDF) ──────────────────────────────────
 
 function exportToPDF(ordenes: OrdenEntrega[]) {
-  const html = `
-    <html><head><title>Órdenes de Entrega</title>
-    <style>
-      body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
-      h1 { font-size: 18px; margin-bottom: 10px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-      th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; font-size: 11px; }
-      th { background: #f5f5f5; font-weight: bold; }
-      @media print { body { margin: 0; } }
-    </style></head><body>
-    <h1>Reporte de Órdenes de Entrega de Material</h1>
-    <p>Generado: ${new Date().toLocaleString('es-MX')}</p>
-    <table>
-      <tr><th>N° Orden</th><th>Obra</th><th>Contratista</th><th>Tipo Trabajo</th><th>Título</th><th>Sector / Piso / Depto</th><th>Duración</th><th>Items</th><th>Unidades</th><th>Creado por</th><th>Fecha</th></tr>
-      ${ordenes.map((o) => `
-        <tr>
-          <td>${o.numero_orden}</td>
-          <td>${o.obra_nombre}</td>
-          <td>${o.contratista_nombre}</td>
-          <td>${o.tipo_trabajo}</td>
-          <td>${o.titulo}</td>
-          <td>${o.sector} / ${o.piso} / ${o.departamento}</td>
-          <td>${o.duracion_dias} días</td>
-          <td>${o.total_items}</td>
-          <td>${o.total_unidades}</td>
-          <td>${o.creado_por}</td>
-          <td>${new Date(o.created_at).toLocaleDateString('es-MX')}</td>
-        </tr>
-      `).join('')}
-    </table>
-    </body></html>`
+  const today = new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' })
+  const totalItems = ordenes.reduce((s, o) => s + o.total_items, 0)
+  const totalUnidades = ordenes.reduce((s, o) => s + o.total_unidades, 0)
+
+  const tableRows = ordenes.map((o, idx) => {
+    const bg = idx % 2 === 0 ? '#ffffff' : '#f8faf8'
+    const fecha = new Date(o.created_at).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    return `<tr>
+      <td style="background:${bg}; text-align:center; font-weight:600; color:#2d5a3d;">${escapeHtml(o.numero_orden)}</td>
+      <td style="background:${bg};">${escapeHtml(o.obra_nombre)}</td>
+      <td style="background:${bg};">${escapeHtml(o.contratista_nombre)}</td>
+      <td style="background:${bg};">${escapeHtml(o.titulo)}</td>
+      <td style="background:${bg};">${escapeHtml(o.sector)}</td>
+      <td style="background:${bg}; text-align:center;">${escapeHtml(o.piso)}</td>
+      <td style="background:${bg}; text-align:center;">${escapeHtml(o.departamento || '—')}</td>
+      <td style="background:${bg}; text-align:center; font-weight:600;">${o.total_items}</td>
+      <td style="background:${bg}; text-align:center; font-weight:600;">${o.total_unidades}</td>
+      <td style="background:${bg}; text-align:center; white-space:nowrap;">${fecha}</td>
+    </tr>`
+  }).join('')
+
+  const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Órdenes de Entrega de Material - ${today}</title>
+<style>
+  @page { size: landscape; margin: 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: #fff; }
+
+  .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 10px 0; border-bottom: 3px solid #4a7c59; margin-bottom: 10px; }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .header-logo { width: 110px; height: auto; }
+  .header-title h1 { font-size: 16px; font-weight: 700; color: #2d5a3d; margin-bottom: 2px; }
+  .header-title h2 { font-size: 11px; font-weight: 600; color: #4a7c59; }
+  .header-right { text-align: right; font-size: 9px; color: #666; line-height: 1.6; }
+  .header-right strong { color: #333; }
+
+  .stats-bar { display: flex; gap: 24px; margin-bottom: 10px; padding: 8px 14px; background: #f0f7f2; border: 1px solid #c8d6c0; border-radius: 6px; }
+  .stat-item { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #4a7c59; }
+  .stat-value { font-weight: 700; font-size: 13px; color: #2d5a3d; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid #c8d6c0; padding: 5px 8px; text-align: left; font-size: 9px; }
+  th { background: #4a7c59; color: #fff; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; font-size: 8px; }
+  .total-row td { background: #2d5a3d; color: #fff; font-weight: 700; font-size: 9.5px; border-color: #2d5a3d; }
+
+  .footer { margin-top: 12px; padding-top: 8px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 8px; color: #999; }
+
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head><body>
+
+<div class="header">
+  <div class="header-left">
+    <img src="/araucaria-logo.png" class="header-logo" alt="Araucaria" crossorigin="anonymous" />
+    <div class="header-title">
+      <h1>Órdenes de Entrega de Material</h1>
+      <h2>Reporte General de Solicitudes</h2>
+    </div>
+  </div>
+  <div class="header-right">
+    <p><strong>Fecha del reporte:</strong> ${today}</p>
+    <p><strong>Total de órdenes:</strong> ${ordenes.length}</p>
+  </div>
+</div>
+
+<div class="stats-bar">
+  <div class="stat-item"><span>Órdenes:</span> <span class="stat-value">${ordenes.length}</span></div>
+  <div class="stat-item"><span>Items totales:</span> <span class="stat-value">${totalItems}</span></div>
+  <div class="stat-item"><span>Unidades totales:</span> <span class="stat-value">${totalUnidades}</span></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:center; width:70px;">N° Orden</th>
+      <th>Obra</th>
+      <th>Contratista</th>
+      <th>Título</th>
+      <th>Sector</th>
+      <th style="text-align:center; width:50px;">Piso</th>
+      <th style="text-align:center; width:50px;">Depto</th>
+      <th style="text-align:center; width:45px;">Items</th>
+      <th style="text-align:center; width:55px;">Uds.</th>
+      <th style="text-align:center; width:75px;">Fecha</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${tableRows}
+    <tr class="total-row">
+      <td colspan="7" style="text-align:right; padding-right:12px;">TOTAL</td>
+      <td style="text-align:center;">${totalItems}</td>
+      <td style="text-align:center;">${totalUnidades}</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  <span>ARAUCARIA CONSTRUCCIONES · Sistema de Gestión de Almacenes</span>
+  <span>Órdenes de Entrega de Material - ${today}</span>
+</div>
+
+</body></html>`
+
   const win = window.open('', '_blank')
   if (win) {
     win.document.write(html)
     win.document.close()
-    win.print()
+    const logoImg = win.document.querySelector('.header-logo') as HTMLImageElement
+    if (logoImg) {
+      logoImg.src = window.location.origin + '/araucaria-logo.png'
+      logoImg.onload = () => setTimeout(() => win.print(), 300)
+      logoImg.onerror = () => setTimeout(() => win.print(), 300)
+    } else {
+      setTimeout(() => win.print(), 300)
+    }
   }
 }
 
@@ -158,6 +231,11 @@ function exportToPDF(ordenes: OrdenEntrega[]) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function SolicitudesPage() {
+  const { user } = useAuth()
+  const { toast } = useToast()
+  const { obras, isLoading: obrasLoading } = useObras()
+  const activeObras = useMemo(() => obras.filter((o) => o.estado === 'activa'), [obras])
+
   // ── Main view toggle ──
   const [mainView, setMainView] = useState<MainView>('nueva')
 
@@ -169,21 +247,28 @@ export default function SolicitudesPage() {
   const [showNewContratista, setShowNewContratista] = useState(false)
   const [newContratistaNombre, setNewContratistaNombre] = useState('')
   const [newContratistaTelefono, setNewContratistaTelefono] = useState('')
-  const [tipoTrabajo, setTipoTrabajo] = useState('')
   const [titulo, setTitulo] = useState('')
   const [descripcion, setDescripcion] = useState('')
-  const [sector, setSector] = useState('')
-  const [piso, setPiso] = useState('')
-  const [departamento, setDepartamento] = useState('')
-  const [duracionDias, setDuracionDias] = useState(1)
+  const [selectedSectorIds, setSelectedSectorIds] = useState<string[]>([])
+  const [selectedPisoIds, setSelectedPisoIds] = useState<string[]>([])
+  const [selectedDepartamentoIds, setSelectedDepartamentoIds] = useState<string[]>([])
   const [cart, setCart] = useState<CartItem[]>([])
   const [searchItem, setSearchItem] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState<'Todo' | 'Materiales' | 'Herramientas' | 'Indumentaria'>('Todo')
   const [submitted, setSubmitted] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // ── API data state ──
+  const [contratistas, setContratistas] = useState<Contratista[]>([])
+  const [contratistasLoading, setContratistasLoading] = useState(false)
+  const [catalogItems, setCatalogItems] = useState<ItemDisponible[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [creatingContratista, setCreatingContratista] = useState(false)
+  const [sectorizacion, setSectorizacion] = useState<ObraSectorizacion | null>(null)
+  const [sectorizacionLoading, setSectorizacionLoading] = useState(false)
 
   // ── Historial state ──
-  const [ordenes, setOrdenes] = useState<OrdenEntrega[]>(MOCK_ORDENES_ENTREGA)
-  const [contratistas, setContratistas] = useState<Contratista[]>(MOCK_CONTRATISTAS)
+  const [ordenes, setOrdenes] = useState<OrdenEntrega[]>([])
+  const [ordenesLoading, setOrdenesLoading] = useState(false)
   const [searchHistorial, setSearchHistorial] = useState('')
   const [filterObra, setFilterObra] = useState('')
   const [filterFechaDesde, setFilterFechaDesde] = useState('')
@@ -192,9 +277,128 @@ export default function SolicitudesPage() {
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null)
 
   // ── Derived ──
-  const selectedObra = MOCK_OBRAS.find((o) => o.id === selectedObraId)
+  const selectedObra = activeObras.find((o) => o.id === selectedObraId)
   const currentStepIdx = FORM_STEPS.indexOf(formStep)
 
+  // ── Fetch contratistas ──
+  const fetchContratistas = useCallback(async () => {
+    setContratistasLoading(true)
+    try {
+      const res = await solicitudesService.getContratistas()
+      setContratistas(res.data)
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al cargar contratistas'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    } finally {
+      setContratistasLoading(false)
+    }
+  }, [toast])
+
+  useEffect(() => {
+    fetchContratistas()
+  }, [fetchContratistas])
+
+  // ── Fetch catalog items when reaching materials step ──
+  const fetchCatalogItems = useCallback(async () => {
+    setCatalogLoading(true)
+    try {
+      const res = await solicitudesService.getItemsDisponibles()
+      setCatalogItems(res.data)
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al cargar materiales'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    } finally {
+      setCatalogLoading(false)
+    }
+  }, [toast])
+
+  useEffect(() => {
+    if (formStep === 'materiales') {
+      fetchCatalogItems()
+    }
+  }, [formStep, fetchCatalogItems])
+
+  // ── Fetch sectorización for selected obra ──
+  const fetchSectorizacion = useCallback(async (obraId: string) => {
+    setSectorizacionLoading(true)
+    setSectorizacion(null)
+    setSelectedSectorIds([])
+    setSelectedPisoIds([])
+    setSelectedDepartamentoIds([])
+    try {
+      const res = await sectorizacionService.getAll()
+      const match = res.data.find((s) => s.obra_id === obraId && s.estado === 'activa')
+      setSectorizacion(match ?? null)
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al cargar sectorización'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    } finally {
+      setSectorizacionLoading(false)
+    }
+  }, [toast])
+
+  useEffect(() => {
+    if (selectedObraId) {
+      fetchSectorizacion(selectedObraId)
+    } else {
+      setSectorizacion(null)
+    }
+  }, [selectedObraId, fetchSectorizacion])
+
+  // ── Derived sectorización data ──
+  const availableSectores = sectorizacion?.sectores ?? []
+  const availablePisos = sectorizacion?.pisos ?? []
+  const availableDepartamentos = useMemo(() => {
+    if (selectedPisoIds.length === 0) return []
+    return availablePisos
+      .filter((p) => selectedPisoIds.includes(p.id))
+      .flatMap((p) => p.departamentos)
+      .filter((d) => selectedSectorIds.length === 0 || selectedSectorIds.some((sid) => {
+        const sector = availableSectores.find((s) => s.id === sid)
+        return sector && d.sector_numero === sector.numero
+      }))
+  }, [availablePisos, availableSectores, selectedPisoIds, selectedSectorIds])
+
+  // ── Compose location strings from selections ──
+  const composedSector = useMemo(() =>
+    availableSectores.filter((s) => selectedSectorIds.includes(s.id)).map((s) => s.nombre).join(', '),
+    [availableSectores, selectedSectorIds]
+  )
+  const composedPiso = useMemo(() =>
+    availablePisos.filter((p) => selectedPisoIds.includes(p.id)).map((p) => p.nombre).join(', '),
+    [availablePisos, selectedPisoIds]
+  )
+  const composedDepartamento = useMemo(() =>
+    availableDepartamentos.filter((d) => selectedDepartamentoIds.includes(d.id)).map((d) => d.letra).join(', '),
+    [availableDepartamentos, selectedDepartamentoIds]
+  )
+
+  // ── Fetch historial ──
+  const fetchOrdenes = useCallback(async () => {
+    setOrdenesLoading(true)
+    try {
+      const res = await solicitudesService.getAll({
+        pageSize: 50,
+        obraId: filterObra || undefined,
+        fechaDesde: filterFechaDesde || undefined,
+        fechaHasta: filterFechaHasta || undefined,
+      })
+      setOrdenes(res.data)
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al cargar historial'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    } finally {
+      setOrdenesLoading(false)
+    }
+  }, [filterObra, filterFechaDesde, filterFechaHasta, toast])
+
+  useEffect(() => {
+    if (mainView === 'historial') {
+      fetchOrdenes()
+    }
+  }, [mainView, fetchOrdenes])
+
+  // ── Filtered contratistas (client-side search) ──
   const filteredContratistas = useMemo(() => {
     if (!searchContratista.trim()) return []
     return contratistas.filter(
@@ -206,49 +410,40 @@ export default function SolicitudesPage() {
     )
   }, [contratistas, searchContratista])
 
-  const catalogItems = useMemo(() => {
-    return MOCK_ITEMS_CATALOGO.map((item) => ({
-      ...item,
-      categoria: getCategoria(item.codigo_fab),
-    }))
-  }, [])
-
+  // ── Filtered catalog items ──
   const filteredItems = useMemo(() => {
     return catalogItems.filter((item) => {
       const matchSearch =
         !searchItem ||
         item.codigo_fab.toLowerCase().includes(searchItem.toLowerCase()) ||
         item.descripcion.toLowerCase().includes(searchItem.toLowerCase())
-      const matchCategory = categoryFilter === 'Todo' || item.categoria === categoryFilter
-      return matchSearch && matchCategory && item.cantidad > 0
+      return matchSearch && item.cantidad > 0
     })
-  }, [catalogItems, searchItem, categoryFilter])
+  }, [catalogItems, searchItem])
 
+  // ── Client-side search on historial ──
   const filteredOrdenes = useMemo(() => {
-    return ordenes.filter((o) => {
-      const matchSearch =
-        !searchHistorial ||
-        o.contratista_nombre.toLowerCase().includes(searchHistorial.toLowerCase()) ||
-        o.numero_orden.toLowerCase().includes(searchHistorial.toLowerCase()) ||
-        o.titulo.toLowerCase().includes(searchHistorial.toLowerCase()) ||
-        o.items.some(
-          (it) =>
-            it.codigo_fab.toLowerCase().includes(searchHistorial.toLowerCase()) ||
-            it.descripcion.toLowerCase().includes(searchHistorial.toLowerCase())
-        )
-      const matchObra = !filterObra || o.obra_id === filterObra
-      const matchFechaDesde = !filterFechaDesde || new Date(o.created_at) >= new Date(filterFechaDesde)
-      const matchFechaHasta = !filterFechaHasta || new Date(o.created_at) <= new Date(filterFechaHasta + 'T23:59:59')
-      return matchSearch && matchObra && matchFechaDesde && matchFechaHasta
-    })
-  }, [ordenes, searchHistorial, filterObra, filterFechaDesde, filterFechaHasta])
+    if (!searchHistorial.trim()) return ordenes
+    return ordenes.filter((o) =>
+      o.contratista_nombre.toLowerCase().includes(searchHistorial.toLowerCase()) ||
+      o.numero_orden.toLowerCase().includes(searchHistorial.toLowerCase()) ||
+      o.titulo.toLowerCase().includes(searchHistorial.toLowerCase()) ||
+      o.items.some(
+        (it) =>
+          it.codigo_fab.toLowerCase().includes(searchHistorial.toLowerCase()) ||
+          it.descripcion.toLowerCase().includes(searchHistorial.toLowerCase())
+      )
+    )
+  }, [ordenes, searchHistorial])
 
   // ── Cart operations ──
-  const addToCart = (item: { id: string; codigo_fab: string; descripcion: string; unidad: string; cantidad: number; categoria: 'Materiales' | 'Herramientas' | 'Indumentaria'; almacen_nombre?: string }) => {
+  const addToCart = (item: ItemDisponible) => {
     const existing = cart.find((c) => c.id === item.id)
     if (existing) {
       if (existing.cantidad < existing.stock_disponible) {
-        setCart(cart.map((c) => (c.id === item.id ? { ...c, cantidad: c.cantidad + 1 } : c)))
+        setCart(cart.map((c) =>
+          c.id === item.id ? { ...c, cantidad: c.cantidad + 1 } : c
+        ))
       }
     } else {
       setCart([
@@ -260,7 +455,6 @@ export default function SolicitudesPage() {
           cantidad: 1,
           unidad: item.unidad,
           stock_disponible: item.cantidad,
-          categoria: item.categoria,
           almacen_nombre: item.almacen_nombre || 'Sin asignar',
         },
       ])
@@ -295,8 +489,8 @@ export default function SolicitudesPage() {
     switch (formStep) {
       case 'obra': return !!selectedObraId
       case 'contratista': return !!selectedContratista
-      case 'detalles': return !!tipoTrabajo && !!titulo.trim()
-      case 'ubicacion': return !!sector.trim() && !!piso.trim()
+      case 'detalles': return !!titulo.trim()
+      case 'ubicacion': return selectedSectorIds.length > 0 && selectedPisoIds.length > 0
       case 'materiales': return cart.length > 0
       case 'resumen': return true
       default: return false
@@ -312,39 +506,30 @@ export default function SolicitudesPage() {
     if (idx > 0) setFormStep(FORM_STEPS[idx - 1])
   }
 
-  // ── Submit order ──
-  const handleSubmit = () => {
-    if (!selectedContratista || !selectedObra) return
-    const newOrder: OrdenEntrega = {
-      id: `oe-${Date.now()}`,
-      numero_orden: `OE-2026-${String(ordenes.length + 1).padStart(3, '0')}`,
-      obra_id: selectedObraId,
-      obra_nombre: selectedObra.nombre,
-      contratista_id: selectedContratista.id,
-      contratista_nombre: selectedContratista.nombre,
-      contratista_telefono: selectedContratista.telefono,
-      tipo_trabajo: tipoTrabajo,
-      titulo,
-      descripcion: descripcion || undefined,
-      sector,
-      piso,
-      departamento,
-      duracion_dias: duracionDias,
-      items: cart.map((c) => ({
-        id: c.id,
-        codigo_fab: c.codigo_fab,
-        descripcion: c.descripcion,
-        cantidad: c.cantidad,
-        unidad: c.unidad,
-        categoria: c.categoria,
-      })),
-      total_items: cart.length,
-      total_unidades: cart.reduce((s, c) => s + c.cantidad, 0),
-      creado_por: 'Usuario Actual',
-      created_at: new Date().toISOString(),
+  // ── Submit order (real API) ──
+  const handleSubmit = async () => {
+    if (!selectedContratista || !selectedObra || isSubmitting) return
+
+    setIsSubmitting(true)
+    try {
+      await solicitudesService.create({
+        obraId: selectedObraId,
+        contratistaId: selectedContratista.id,
+        titulo: titulo.trim(),
+        descripcion: descripcion.trim() || undefined,
+        sector: composedSector,
+        piso: composedPiso,
+        departamento: composedDepartamento || undefined,
+        items: cart.map((c) => ({ itemId: c.id, cantidad: c.cantidad })),
+      })
+      toast({ title: 'Orden registrada', description: 'La orden de entrega fue creada exitosamente' })
+      setSubmitted(true)
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al crear la orden'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    } finally {
+      setIsSubmitting(false)
     }
-    setOrdenes([newOrder, ...ordenes])
-    setSubmitted(true)
   }
 
   const resetForm = () => {
@@ -352,36 +537,42 @@ export default function SolicitudesPage() {
     setSelectedObraId('')
     setSelectedContratista(null)
     setSearchContratista('')
-    setTipoTrabajo('')
     setTitulo('')
     setDescripcion('')
-    setSector('')
-    setPiso('')
-    setDepartamento('')
-    setDuracionDias(1)
+    setSelectedSectorIds([])
+    setSelectedPisoIds([])
+    setSelectedDepartamentoIds([])
+    setSectorizacion(null)
     setCart([])
     setSearchItem('')
-    setCategoryFilter('Todo')
     setSubmitted(false)
   }
 
-  // ── New contratista ──
-  const handleCreateContratista = () => {
-    if (!newContratistaNombre.trim()) return
-    const nuevo: Contratista = {
-      id: `c-${Date.now()}`,
-      nombre: newContratistaNombre.trim(),
-      empresa: '—',
-      telefono: newContratistaTelefono.trim() || undefined,
-      obra: selectedObra?.nombre || '',
-      estado: 'activo',
-      fecha_registro: new Date().toISOString().split('T')[0],
+  // ── New contratista (real API) ──
+  const handleCreateContratista = async () => {
+    if (!newContratistaNombre.trim() || creatingContratista) return
+
+    setCreatingContratista(true)
+    try {
+      const res = await solicitudesService.createContratista({
+        nombre: newContratistaNombre.trim(),
+        empresa: '—',
+        telefono: newContratistaTelefono.trim() || undefined,
+        obraId: selectedObraId || undefined,
+      })
+      const nuevo = res.data
+      setContratistas([nuevo, ...contratistas])
+      setSelectedContratista(nuevo)
+      setNewContratistaNombre('')
+      setNewContratistaTelefono('')
+      setShowNewContratista(false)
+      toast({ title: 'Contratista creado', description: `${nuevo.nombre} fue registrado` })
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al crear contratista'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    } finally {
+      setCreatingContratista(false)
     }
-    setContratistas([nuevo, ...contratistas])
-    setSelectedContratista(nuevo)
-    setNewContratistaNombre('')
-    setNewContratistaTelefono('')
-    setShowNewContratista(false)
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -488,39 +679,51 @@ export default function SolicitudesPage() {
                     <h2 className="text-lg font-bold text-foreground">Seleccionar Obra</h2>
                     <p className="text-sm text-muted-foreground mt-1">Elige la obra a la que se asignará la entrega de material</p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {MOCK_OBRAS.filter((o) => o.estado === 'activa').map((obra) => (
-                      <button
-                        key={obra.id}
-                        onClick={() => setSelectedObraId(obra.id)}
-                        className={`text-left p-4 rounded-xl border-2 transition-all ${
-                          selectedObraId === obra.id
-                            ? 'border-accent bg-accent/5 shadow-sm'
-                            : 'border-border hover:border-accent/40 hover:bg-border/20'
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div
-                            className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                              selectedObraId === obra.id ? 'bg-accent text-white' : 'bg-border/50 text-muted-foreground'
-                            }`}
-                          >
-                            <Briefcase className="w-5 h-5" />
+                  {obrasLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-accent" />
+                      <span className="ml-2 text-sm text-muted-foreground">Cargando obras...</span>
+                    </div>
+                  ) : activeObras.length === 0 ? (
+                    <div className="text-center py-12">
+                      <AlertCircle className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">No hay obras activas disponibles</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {activeObras.map((obra) => (
+                        <button
+                          key={obra.id}
+                          onClick={() => setSelectedObraId(obra.id)}
+                          className={`text-left p-4 rounded-xl border-2 transition-all ${
+                            selectedObraId === obra.id
+                              ? 'border-accent bg-accent/5 shadow-sm'
+                              : 'border-border hover:border-accent/40 hover:bg-border/20'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                selectedObraId === obra.id ? 'bg-accent text-white' : 'bg-border/50 text-muted-foreground'
+                              }`}
+                            >
+                              <Briefcase className="w-5 h-5" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-foreground text-sm truncate">{obra.nombre}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">{obra.ubicacion}</p>
+                              <p className="text-xs text-muted-foreground">Resp: {obra.responsable}</p>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-foreground text-sm truncate">{obra.nombre}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">{obra.ubicacion}</p>
-                            <p className="text-xs text-muted-foreground">Resp: {obra.responsable}</p>
-                          </div>
-                        </div>
-                        {selectedObraId === obra.id && (
-                          <div className="mt-2 flex items-center gap-1 text-accent text-xs font-medium">
-                            <Check className="w-3.5 h-3.5" /> Seleccionada
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+                          {selectedObraId === obra.id && (
+                            <div className="mt-2 flex items-center gap-1 text-accent text-xs font-medium">
+                              <Check className="w-3.5 h-3.5" /> Seleccionada
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -565,47 +768,56 @@ export default function SolicitudesPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                        <input
-                          type="text"
-                          placeholder="Buscar por nombre, empresa o teléfono..."
-                          value={searchContratista}
-                          onChange={(e) => setSearchContratista(e.target.value)}
-                          className="w-full pl-10 pr-4 py-3 bg-input border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                        />
-                      </div>
-
-                      {filteredContratistas.length > 0 && (
-                        <div className="border border-border rounded-xl overflow-hidden max-h-60 overflow-y-auto">
-                          {filteredContratistas.map((c) => (
-                            <button
-                              key={c.id}
-                              onClick={() => {
-                                setSelectedContratista(c)
-                                setSearchContratista('')
-                              }}
-                              className="w-full flex items-center gap-3 p-3 hover:bg-border/30 transition-colors border-b border-border last:border-b-0"
-                            >
-                              <div className="w-9 h-9 rounded-full bg-border/50 flex items-center justify-center flex-shrink-0">
-                                <User className="w-4 h-4 text-muted-foreground" />
-                              </div>
-                              <div className="text-left min-w-0">
-                                <p className="text-sm font-medium text-foreground truncate">{c.nombre}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {c.empresa}
-                                  {c.telefono ? ` · ${c.telefono}` : ''}
-                                </p>
-                              </div>
-                            </button>
-                          ))}
+                      {contratistasLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-5 h-5 animate-spin text-accent" />
+                          <span className="ml-2 text-sm text-muted-foreground">Cargando contratistas...</span>
                         </div>
-                      )}
+                      ) : (
+                        <>
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                            <input
+                              type="text"
+                              placeholder="Buscar por nombre, empresa o teléfono..."
+                              value={searchContratista}
+                              onChange={(e) => setSearchContratista(e.target.value)}
+                              className="w-full pl-10 pr-4 py-3 bg-input border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                            />
+                          </div>
 
-                      {searchContratista && filteredContratistas.length === 0 && (
-                        <div className="text-center py-6 text-muted-foreground text-sm">
-                          No se encontraron contratistas
-                        </div>
+                          {filteredContratistas.length > 0 && (
+                            <div className="border border-border rounded-xl overflow-hidden max-h-60 overflow-y-auto">
+                              {filteredContratistas.map((c) => (
+                                <button
+                                  key={c.id}
+                                  onClick={() => {
+                                    setSelectedContratista(c)
+                                    setSearchContratista('')
+                                  }}
+                                  className="w-full flex items-center gap-3 p-3 hover:bg-border/30 transition-colors border-b border-border last:border-b-0"
+                                >
+                                  <div className="w-9 h-9 rounded-full bg-border/50 flex items-center justify-center flex-shrink-0">
+                                    <User className="w-4 h-4 text-muted-foreground" />
+                                  </div>
+                                  <div className="text-left min-w-0">
+                                    <p className="text-sm font-medium text-foreground truncate">{c.nombre}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {c.empresa}
+                                      {c.telefono ? ` · ${c.telefono}` : ''}
+                                    </p>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {searchContratista && filteredContratistas.length === 0 && (
+                            <div className="text-center py-6 text-muted-foreground text-sm">
+                              No se encontraron contratistas
+                            </div>
+                          )}
+                        </>
                       )}
 
                       <div className="border-t border-border pt-4">
@@ -649,9 +861,10 @@ export default function SolicitudesPage() {
                               </button>
                               <button
                                 onClick={handleCreateContratista}
-                                disabled={!newContratistaNombre.trim()}
-                                className="px-4 py-1.5 bg-accent text-white text-sm rounded-lg font-medium hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={!newContratistaNombre.trim() || creatingContratista}
+                                className="flex items-center gap-2 px-4 py-1.5 bg-accent text-white text-sm rounded-lg font-medium hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
+                                {creatingContratista && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                                 Crear y seleccionar
                               </button>
                             </div>
@@ -667,48 +880,8 @@ export default function SolicitudesPage() {
               {formStep === 'detalles' && (
                 <div className="space-y-4">
                   <div>
-                    <h2 className="text-lg font-bold text-foreground">Detalles del Trabajo</h2>
-                    <p className="text-sm text-muted-foreground mt-1">Indica el tipo de trabajo, título y descripción</p>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">Tipo de Trabajo *</label>
-                      <select
-                        value={tipoTrabajo}
-                        onChange={(e) => setTipoTrabajo(e.target.value)}
-                        className="w-full px-3 py-2.5 bg-input border border-border rounded-xl text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                      >
-                        <option value="">Seleccionar...</option>
-                        {TIPOS_TRABAJO.map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">Duración estimada</label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setDuracionDias(Math.max(1, duracionDias - 1))}
-                          className="w-9 h-9 flex items-center justify-center bg-border/50 rounded-lg hover:bg-border transition-colors"
-                        >
-                          <Minus className="w-4 h-4" />
-                        </button>
-                        <input
-                          type="number"
-                          min={1}
-                          value={duracionDias}
-                          onChange={(e) => setDuracionDias(Math.max(1, parseInt(e.target.value) || 1))}
-                          className="w-16 text-center px-2 py-2 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                        />
-                        <button
-                          onClick={() => setDuracionDias(duracionDias + 1)}
-                          className="w-9 h-9 flex items-center justify-center bg-border/50 rounded-lg hover:bg-border transition-colors"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                        <span className="text-sm text-muted-foreground">días</span>
-                      </div>
-                    </div>
+                    <h2 className="text-lg font-bold text-foreground">Detalles de la Orden</h2>
+                    <p className="text-sm text-muted-foreground mt-1">Indica el título y una descripción opcional</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1.5">Título de la Orden *</label>
@@ -716,7 +889,7 @@ export default function SolicitudesPage() {
                       type="text"
                       value={titulo}
                       onChange={(e) => setTitulo(e.target.value)}
-                      placeholder="Ej: Pintura de acabados Piso 3"
+                      placeholder="Ej: Entrega de materiales Piso 3"
                       className="w-full px-3 py-2.5 bg-input border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                     />
                   </div>
@@ -740,48 +913,150 @@ export default function SolicitudesPage() {
                 <div className="space-y-4">
                   <div>
                     <h2 className="text-lg font-bold text-foreground">Ubicación del Trabajo</h2>
-                    <p className="text-sm text-muted-foreground mt-1">Asigna el sector, piso y departamento(s) donde se trabajará</p>
+                    <p className="text-sm text-muted-foreground mt-1">Selecciona sector, piso y departamento(s) de la sectorización de la obra</p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">Sector *</label>
-                      <input
-                        type="text"
-                        value={sector}
-                        onChange={(e) => setSector(e.target.value)}
-                        placeholder="Ej: Sector 1"
-                        className="w-full px-3 py-2.5 bg-input border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                      />
+
+                  {sectorizacionLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-accent" />
+                      <span className="ml-2 text-sm text-muted-foreground">Cargando sectorización...</span>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">Piso *</label>
-                      <input
-                        type="text"
-                        value={piso}
-                        onChange={(e) => setPiso(e.target.value)}
-                        placeholder="Ej: Piso 3"
-                        className="w-full px-3 py-2.5 bg-input border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                      />
+                  ) : !sectorizacion ? (
+                    <div className="text-center py-12">
+                      <AlertCircle className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">
+                        No se encontró una sectorización activa para esta obra.
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Primero debes crear la sectorización en la sección correspondiente.
+                      </p>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        Departamento(s) <span className="text-muted-foreground font-normal">(opcional)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={departamento}
-                        onChange={(e) => setDepartamento(e.target.value)}
-                        placeholder="Ej: A, B, C"
-                        className="w-full px-3 py-2.5 bg-input border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                      />
-                    </div>
-                  </div>
-                  {(sector || piso || departamento) && (
-                    <div className="flex items-center gap-2 p-3 bg-accent/5 border border-accent/20 rounded-xl">
-                      <MapPin className="w-4 h-4 text-accent flex-shrink-0" />
-                      <span className="text-sm text-foreground">
-                        {[sector, piso, departamento].filter(Boolean).join(' → ')}
-                      </span>
+                  ) : (
+                    <div className="space-y-5">
+                      {/* Sector picker */}
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-2">Sector(es) *</label>
+                        <div className="flex flex-wrap gap-2">
+                          {availableSectores.map((s) => {
+                            const isSelected = selectedSectorIds.includes(s.id)
+                            return (
+                              <button
+                                key={s.id}
+                                onClick={() => {
+                                  setSelectedSectorIds(
+                                    isSelected
+                                      ? selectedSectorIds.filter((id) => id !== s.id)
+                                      : [...selectedSectorIds, s.id]
+                                  )
+                                  // Reset departamentos when sectors change
+                                  setSelectedDepartamentoIds([])
+                                }}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                                  isSelected
+                                    ? 'border-accent bg-accent/10 text-accent'
+                                    : 'border-border hover:border-accent/40 text-foreground hover:bg-border/20'
+                                }`}
+                              >
+                                <span
+                                  className="w-3 h-3 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: s.color }}
+                                />
+                                {s.nombre}
+                                {isSelected && <Check className="w-3.5 h-3.5" />}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {availableSectores.length === 0 && (
+                          <p className="text-xs text-muted-foreground mt-1">No hay sectores definidos.</p>
+                        )}
+                      </div>
+
+                      {/* Piso picker */}
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-2">Piso(s) *</label>
+                        <div className="flex flex-wrap gap-2">
+                          {availablePisos.map((p) => {
+                            const isSelected = selectedPisoIds.includes(p.id)
+                            return (
+                              <button
+                                key={p.id}
+                                onClick={() => {
+                                  const newPisos = isSelected
+                                    ? selectedPisoIds.filter((id) => id !== p.id)
+                                    : [...selectedPisoIds, p.id]
+                                  setSelectedPisoIds(newPisos)
+                                  // Reset departamentos when pisos change
+                                  setSelectedDepartamentoIds([])
+                                }}
+                                className={`px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                                  isSelected
+                                    ? 'border-accent bg-accent/10 text-accent'
+                                    : 'border-border hover:border-accent/40 text-foreground hover:bg-border/20'
+                                }`}
+                              >
+                                {p.nombre}
+                                {isSelected && <Check className="w-3.5 h-3.5 ml-1.5 inline" />}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {availablePisos.length === 0 && (
+                          <p className="text-xs text-muted-foreground mt-1">No hay pisos definidos.</p>
+                        )}
+                      </div>
+
+                      {/* Departamento picker (optional, appears when pisos selected) */}
+                      {availableDepartamentos.length > 0 && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-2">
+                            Departamento(s) <span className="text-muted-foreground font-normal">(opcional)</span>
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {availableDepartamentos.map((d) => {
+                              const isSelected = selectedDepartamentoIds.includes(d.id)
+                              const sectorColor = availableSectores.find((s) => s.numero === d.sector_numero)?.color
+                              return (
+                                <button
+                                  key={d.id}
+                                  onClick={() =>
+                                    setSelectedDepartamentoIds(
+                                      isSelected
+                                        ? selectedDepartamentoIds.filter((id) => id !== d.id)
+                                        : [...selectedDepartamentoIds, d.id]
+                                    )
+                                  }
+                                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                                    isSelected
+                                      ? 'border-accent bg-accent/10 text-accent'
+                                      : 'border-border hover:border-accent/40 text-foreground hover:bg-border/20'
+                                  }`}
+                                >
+                                  {sectorColor && (
+                                    <span
+                                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                      style={{ backgroundColor: sectorColor }}
+                                    />
+                                  )}
+                                  Depto {d.letra}
+                                  {d.nombre ? ` — ${d.nombre}` : ''}
+                                  {isSelected && <Check className="w-3.5 h-3.5 ml-1" />}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Location preview */}
+                      {(selectedSectorIds.length > 0 || selectedPisoIds.length > 0) && (
+                        <div className="flex items-center gap-2 p-3 bg-accent/5 border border-accent/20 rounded-xl">
+                          <MapPin className="w-4 h-4 text-accent flex-shrink-0" />
+                          <span className="text-sm text-foreground">
+                            {[composedSector, composedPiso, composedDepartamento].filter(Boolean).join(' → ')}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -797,94 +1072,72 @@ export default function SolicitudesPage() {
                     </p>
                   </div>
 
-                  {/* Search and filters */}
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                      <input
-                        type="text"
-                        placeholder="Buscar por código, nombre o descripción..."
-                        value={searchItem}
-                        onChange={(e) => setSearchItem(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 bg-input border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                      />
-                    </div>
-                    <div className="flex gap-1 bg-border/30 rounded-xl p-0.5">
-                      {(['Todo', 'Materiales', 'Herramientas', 'Indumentaria'] as const).map((cat) => (
-                        <button
-                          key={cat}
-                          onClick={() => setCategoryFilter(cat)}
-                          className={`px-3 py-2 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
-                            categoryFilter === cat
-                              ? 'bg-accent text-white shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          {cat}
-                        </button>
-                      ))}
-                    </div>
+                  {/* Search */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por código, nombre o descripción..."
+                      value={searchItem}
+                      onChange={(e) => setSearchItem(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-input border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                    />
                   </div>
 
                   {/* Split: items grid + cart */}
                   <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
                     {/* Item catalog */}
                     <div className="lg:col-span-3 space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                      {filteredItems.map((item) => {
-                        const inCart = cart.find((c) => c.id === item.id)
-                        return (
-                          <div
-                            key={item.id}
-                            className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                              inCart ? 'border-accent/40 bg-accent/5' : 'border-border hover:border-accent/20 hover:bg-border/10'
-                            }`}
-                          >
-                            <div className="w-12 h-12 rounded-lg bg-border/40 flex items-center justify-center flex-shrink-0">
-                              <Package className="w-6 h-6 text-muted-foreground" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-mono text-xs font-bold text-accent">{item.codigo_fab}</p>
-                              <p className="text-sm text-foreground line-clamp-1">{item.descripcion}</p>
-                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                <span className="text-xs text-muted-foreground">
-                                  Stock: {item.cantidad} {item.unidad}
-                                </span>
-                                <span
-                                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                    item.categoria === 'Herramientas'
-                                      ? 'bg-orange-500/10 text-orange-500'
-                                      : item.categoria === 'Indumentaria'
-                                        ? 'bg-blue-500/10 text-blue-500'
-                                        : 'bg-accent/10 text-accent'
-                                  }`}
-                                >
-                                  {item.categoria}
-                                </span>
-                              </div>
-                              {item.almacen_nombre && (
-                                <div className="flex items-center gap-1 mt-1 text-[11px] text-muted-foreground">
-                                  <Warehouse className="w-3 h-3 flex-shrink-0" />
-                                  <span className="truncate">{item.almacen_nombre}</span>
-                                </div>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => addToCart(item)}
-                              className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors flex-shrink-0 ${
-                                inCart
-                                  ? 'bg-accent/20 text-accent'
-                                  : 'bg-accent text-white hover:bg-accent/90'
+                      {catalogLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                          <Loader2 className="w-6 h-6 animate-spin text-accent" />
+                          <span className="ml-2 text-sm text-muted-foreground">Cargando materiales...</span>
+                        </div>
+                      ) : filteredItems.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground text-sm">
+                          No se encontraron materiales disponibles
+                        </div>
+                      ) : (
+                        filteredItems.map((item) => {
+                          const inCart = cart.find((c) => c.id === item.id)
+                          return (
+                            <div
+                              key={`${item.id}-${item.almacen_id}`}
+                              className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                                inCart ? 'border-accent/40 bg-accent/5' : 'border-border hover:border-accent/20 hover:bg-border/10'
                               }`}
                             >
-                              <Plus className="w-5 h-5" />
-                            </button>
-                          </div>
-                        )
-                      })}
-                      {filteredItems.length === 0 && (
-                        <div className="text-center py-12 text-muted-foreground text-sm">
-                          No se encontraron materiales
-                        </div>
+                              <div className="w-12 h-12 rounded-lg bg-border/40 flex items-center justify-center flex-shrink-0">
+                                <Package className="w-6 h-6 text-muted-foreground" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-mono text-xs font-bold text-accent">{item.codigo_fab}</p>
+                                <p className="text-sm text-foreground line-clamp-1">{item.descripcion}</p>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  <span className="text-xs text-muted-foreground">
+                                    Stock: {item.cantidad} {item.unidad}
+                                  </span>
+                                </div>
+                                {item.almacen_nombre && (
+                                  <div className="flex items-center gap-1 mt-1 text-[11px] text-muted-foreground">
+                                    <Warehouse className="w-3 h-3 flex-shrink-0" />
+                                    <span className="truncate">{item.almacen_nombre}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => addToCart(item)}
+                                className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors flex-shrink-0 ${
+                                  inCart
+                                    ? 'bg-accent/20 text-accent'
+                                    : 'bg-accent text-white hover:bg-accent/90'
+                                }`}
+                              >
+                                <Plus className="w-5 h-5" />
+                              </button>
+                            </div>
+                          )
+                        })
                       )}
                     </div>
 
@@ -1008,7 +1261,6 @@ export default function SolicitudesPage() {
                           <FileText className="w-4 h-4 text-accent" /> Trabajo
                         </h3>
                         <p className="text-sm text-foreground font-medium">{titulo}</p>
-                        <p className="text-xs text-muted-foreground">{tipoTrabajo} · {duracionDias} días</p>
                         {descripcion && <p className="text-xs text-muted-foreground mt-1">{descripcion}</p>}
                       </div>
 
@@ -1017,7 +1269,7 @@ export default function SolicitudesPage() {
                           <MapPin className="w-4 h-4 text-accent" /> Ubicación
                         </h3>
                         <p className="text-sm text-foreground">
-                          {[sector, piso, departamento].filter(Boolean).join(' → ')}
+                          {[composedSector, composedPiso, composedDepartamento].filter(Boolean).join(' → ')}
                         </p>
                       </div>
                     </div>
@@ -1076,10 +1328,15 @@ export default function SolicitudesPage() {
               {formStep === 'resumen' ? (
                 <button
                   onClick={handleSubmit}
-                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-accent text-white rounded-xl hover:bg-accent/90 transition-colors shadow-sm"
+                  disabled={isSubmitting}
+                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-accent text-white rounded-xl hover:bg-accent/90 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Check className="w-4 h-4" />
-                  Confirmar Orden
+                  {isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Check className="w-4 h-4" />
+                  )}
+                  {isSubmitting ? 'Procesando...' : 'Confirmar Orden'}
                 </button>
               ) : (
                 <button
@@ -1164,7 +1421,8 @@ export default function SolicitudesPage() {
                   </button>
                   <button
                     onClick={() => exportToCSV(filteredOrdenes)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border border-border text-foreground hover:bg-border/30 transition-colors"
+                    disabled={filteredOrdenes.length === 0}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border border-border text-foreground hover:bg-border/30 transition-colors disabled:opacity-40"
                     title="Exportar a Excel/CSV"
                   >
                     <Download className="w-4 h-4" />
@@ -1172,7 +1430,8 @@ export default function SolicitudesPage() {
                   </button>
                   <button
                     onClick={() => exportToPDF(filteredOrdenes)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border border-border text-foreground hover:bg-border/30 transition-colors"
+                    disabled={filteredOrdenes.length === 0}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border border-border text-foreground hover:bg-border/30 transition-colors disabled:opacity-40"
                     title="Exportar a PDF"
                   >
                     <FileText className="w-4 h-4" />
@@ -1192,7 +1451,7 @@ export default function SolicitudesPage() {
                       className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                     >
                       <option value="">Todas</option>
-                      {MOCK_OBRAS.map((o) => (
+                      {obras.map((o) => (
                         <option key={o.id} value={o.id}>{o.nombre}</option>
                       ))}
                     </select>
@@ -1238,8 +1497,13 @@ export default function SolicitudesPage() {
               </p>
             </div>
 
-            {/* Order cards */}
-            {filteredOrdenes.length === 0 ? (
+            {/* Loading */}
+            {ordenesLoading ? (
+              <div className="bg-card border border-border rounded-xl p-12 text-center">
+                <Loader2 className="w-8 h-8 animate-spin text-accent mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">Cargando órdenes...</p>
+              </div>
+            ) : filteredOrdenes.length === 0 ? (
               <div className="bg-card border border-border rounded-xl p-12 text-center">
                 <ClipboardList className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
                 <p className="text-muted-foreground text-sm">No se encontraron órdenes de entrega</p>
@@ -1288,9 +1552,6 @@ export default function SolicitudesPage() {
                                 <Clock className="w-3 h-3" />
                                 {fecha.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                               </p>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">
-                                por {orden.creado_por}
-                              </p>
                             </div>
                             <div className="flex items-center gap-2">
                               <div className="bg-border/30 rounded-lg px-2.5 py-1.5 text-center">
@@ -1316,22 +1577,13 @@ export default function SolicitudesPage() {
                             <Clock className="w-3 h-3" />
                             {fecha.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          <span>por {orden.creado_por}</span>
                         </div>
                       </button>
 
                       {/* Expanded details */}
                       {isExpanded && (
                         <div className="border-t border-border p-4 bg-border/5 space-y-4">
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div>
-                              <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Tipo Trabajo</p>
-                              <p className="text-sm text-foreground font-medium mt-0.5">{orden.tipo_trabajo}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Duración</p>
-                              <p className="text-sm text-foreground font-medium mt-0.5">{orden.duracion_dias} días</p>
-                            </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                             <div>
                               <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Departamento</p>
                               <p className="text-sm text-foreground font-medium mt-0.5">{orden.departamento || '—'}</p>
@@ -1339,6 +1591,10 @@ export default function SolicitudesPage() {
                             <div>
                               <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Total Unidades</p>
                               <p className="text-sm text-foreground font-medium mt-0.5">{orden.total_unidades}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Total Items</p>
+                              <p className="text-sm text-foreground font-medium mt-0.5">{orden.total_items}</p>
                             </div>
                           </div>
 

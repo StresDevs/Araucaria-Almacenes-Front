@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { AppShell } from '@/components/app-shell'
 import { useAuth } from '@/providers/auth-provider'
 import { useRouter } from 'next/navigation'
+import { useToast } from '@/hooks/use-toast'
+import { aprobacionesService, HttpError } from '@/services'
 import {
   ShieldCheck, Trash2, Edit3, ArrowLeftRight, Clock, Check, XCircle,
-  ChevronDown, Package, AlertTriangle, Image as ImageIcon, MessageSquare,
-  User, Calendar, Filter, X,
+  ChevronDown, AlertTriangle, Image as ImageIcon,
+  User, Calendar, Filter, Loader2,
 } from 'lucide-react'
-import { MOCK_SOLICITUDES_APROBACION } from '@/lib/constants'
 import type {
   SolicitudAprobacion,
   TipoSolicitudAprobacion,
@@ -18,7 +19,7 @@ import type {
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const TIPO_CONFIG: Record<TipoSolicitudAprobacion, { label: string; icon: any; color: string; bgColor: string }> = {
+const TIPO_CONFIG: Record<TipoSolicitudAprobacion, { label: string; icon: typeof Trash2; color: string; bgColor: string }> = {
   baja_producto: {
     label: 'Baja de Producto',
     icon: Trash2,
@@ -39,7 +40,7 @@ const TIPO_CONFIG: Record<TipoSolicitudAprobacion, { label: string; icon: any; c
   },
 }
 
-const ESTADO_STYLES: Record<EstadoAprobacion, { bg: string; text: string; icon: any; label: string }> = {
+const ESTADO_STYLES: Record<EstadoAprobacion, { bg: string; text: string; icon: typeof Clock; label: string }> = {
   pendiente: { bg: 'bg-amber-900/20 border-amber-600/30', text: 'text-amber-400', icon: Clock, label: 'Pendiente' },
   aprobada: { bg: 'bg-green-900/20 border-green-600/30', text: 'text-green-400', icon: Check, label: 'Aprobada' },
   rechazada: { bg: 'bg-red-900/20 border-red-600/30', text: 'text-red-400', icon: XCircle, label: 'Rechazada' },
@@ -60,6 +61,7 @@ const MOTIVOS_LABELS: Record<string, string> = {
 export default function AprobacionesPage() {
   const { user } = useAuth()
   const router = useRouter()
+  const { toast } = useToast()
 
   // Redirect non-admin
   if (user && user.rol !== 'administrador') {
@@ -67,51 +69,75 @@ export default function AprobacionesPage() {
     return null
   }
 
-  const [solicitudes, setSolicitudes] = useState<SolicitudAprobacion[]>(MOCK_SOLICITUDES_APROBACION)
+  const [solicitudes, setSolicitudes] = useState<SolicitudAprobacion[]>([])
+  const [loading, setLoading] = useState(true)
   const [tipoFilter, setTipoFilter] = useState<'todos' | TipoSolicitudAprobacion>('todos')
   const [estadoFilter, setEstadoFilter] = useState<'todos' | EstadoAprobacion>('todos')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [notasRechazo, setNotasRechazo] = useState<Record<string, string>>({})
   const [showRechazoInput, setShowRechazoInput] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-  // Filtered
-  const filtered = useMemo(() => {
-    return solicitudes.filter(s => {
-      const matchTipo = tipoFilter === 'todos' || s.tipo === tipoFilter
-      const matchEstado = estadoFilter === 'todos' || s.estado === estadoFilter
-      return matchTipo && matchEstado
-    })
-  }, [solicitudes, tipoFilter, estadoFilter])
+  // ── Fetch solicitudes ──
+  const fetchSolicitudes = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await aprobacionesService.getAll(tipoFilter, estadoFilter)
+      setSolicitudes(res.data)
+    } catch {
+      toast({ title: 'Error', description: 'No se pudieron cargar las aprobaciones', variant: 'destructive' })
+    } finally {
+      setLoading(false)
+    }
+  }, [tipoFilter, estadoFilter, toast])
 
-  // Stats
-  const pendientesTotal = solicitudes.filter(s => s.estado === 'pendiente').length
-  const bajasPendientes = solicitudes.filter(s => s.tipo === 'baja_producto' && s.estado === 'pendiente').length
-  const stockPendientes = solicitudes.filter(s => s.tipo === 'edicion_stock' && s.estado === 'pendiente').length
-  const transfPendientes = solicitudes.filter(s => s.tipo === 'transferencia_atrasada' && s.estado === 'pendiente').length
+  useEffect(() => {
+    fetchSolicitudes()
+  }, [fetchSolicitudes])
+
+  // Stats (from full data — refetch without filters)
+  const [allSolicitudes, setAllSolicitudes] = useState<SolicitudAprobacion[]>([])
+  useEffect(() => {
+    aprobacionesService.getAll().then(res => setAllSolicitudes(res.data)).catch(() => {})
+  }, [solicitudes]) // refresh stats when list changes
+
+  const pendientesTotal = allSolicitudes.filter(s => s.estado === 'pendiente').length
+  const bajasPendientes = allSolicitudes.filter(s => s.tipo === 'baja_producto' && s.estado === 'pendiente').length
+  const stockPendientes = allSolicitudes.filter(s => s.tipo === 'edicion_stock' && s.estado === 'pendiente').length
+  const transfPendientes = allSolicitudes.filter(s => s.tipo === 'transferencia_atrasada' && s.estado === 'pendiente').length
 
   // Handlers
-  const handleAprobar = (id: string) => {
-    setSolicitudes(prev =>
-      prev.map(s =>
-        s.id === id
-          ? { ...s, estado: 'aprobada' as const, revisado_por: user?.nombre || 'Admin', fecha_revision: new Date().toISOString() }
-          : s
-      )
-    )
-    setExpandedId(null)
+  const handleAprobar = async (id: string) => {
+    setActionLoading(id)
+    try {
+      await aprobacionesService.aprobar(id)
+      toast({ title: 'Aprobada', description: 'La solicitud fue aprobada exitosamente' })
+      setExpandedId(null)
+      fetchSolicitudes()
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al aprobar'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    } finally {
+      setActionLoading(null)
+    }
   }
 
-  const handleRechazar = (id: string) => {
-    const notas = notasRechazo[id] || ''
-    setSolicitudes(prev =>
-      prev.map(s =>
-        s.id === id
-          ? { ...s, estado: 'rechazada' as const, revisado_por: user?.nombre || 'Admin', fecha_revision: new Date().toISOString() }
-          : s
-      )
-    )
-    setShowRechazoInput(null)
-    setExpandedId(null)
+  const handleRechazar = async (id: string) => {
+    setActionLoading(id)
+    try {
+      const notas = notasRechazo[id] || undefined
+      await aprobacionesService.rechazar(id, notas)
+      toast({ title: 'Rechazada', description: 'La solicitud fue rechazada' })
+      setShowRechazoInput(null)
+      setExpandedId(null)
+      setNotasRechazo(prev => { const copy = { ...prev }; delete copy[id]; return copy })
+      fetchSolicitudes()
+    } catch (err) {
+      const msg = err instanceof HttpError ? err.message : 'Error al rechazar'
+      toast({ title: 'Error', description: msg, variant: 'destructive' })
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   const formatDate = (iso: string) => {
@@ -224,13 +250,18 @@ export default function AprobacionesPage() {
 
         {/* Solicitudes List */}
         <div className="space-y-3">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-sm">Cargando solicitudes…</span>
+            </div>
+          ) : solicitudes.length === 0 ? (
             <div className="bg-card border border-border rounded-xl p-10 text-center">
               <ShieldCheck className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
               <p className="text-muted-foreground text-sm">No hay solicitudes con los filtros seleccionados</p>
             </div>
           ) : (
-            filtered.map(sol => {
+            solicitudes.map(sol => {
               const tipo = TIPO_CONFIG[sol.tipo]
               const est = ESTADO_STYLES[sol.estado]
               const TipoIcon = tipo.icon
@@ -301,10 +332,16 @@ export default function AprobacionesPage() {
                           {sol.evidencia_url && (
                             <div>
                               <p className="text-xs text-muted-foreground mb-0.5">Evidencia</p>
-                              <div className="flex items-center gap-2 p-2 bg-border/20 rounded-lg">
+                              <a
+                                href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}/${sol.evidencia_url}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 p-2 bg-border/20 rounded-lg hover:bg-border/40 transition-colors"
+                              >
                                 <ImageIcon className="w-4 h-4 text-accent flex-shrink-0" />
                                 <span className="text-xs text-foreground">Fotografía adjunta</span>
-                              </div>
+                                <span className="text-xs text-accent ml-auto">Ver imagen</span>
+                              </a>
                             </div>
                           )}
                         </div>
@@ -417,6 +454,15 @@ export default function AprobacionesPage() {
                                 <p className="text-sm text-foreground">{sol.fecha_revision ? formatDateTime(sol.fecha_revision) : '-'}</p>
                               </div>
                             </div>
+                            {sol.notas_revision && (
+                              <div className="sm:col-span-2 flex items-start gap-2">
+                                <ShieldCheck className="w-3.5 h-3.5 text-muted-foreground mt-0.5" />
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Notas de revisión</p>
+                                  <p className="text-sm text-foreground">{sol.notas_revision}</p>
+                                </div>
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
@@ -439,15 +485,21 @@ export default function AprobacionesPage() {
                               <div className="flex gap-2 justify-end">
                                 <button
                                   onClick={() => setShowRechazoInput(null)}
-                                  className="px-3 py-2 text-sm text-foreground border border-border rounded-lg hover:bg-border/40 transition-colors"
+                                  disabled={actionLoading === sol.id}
+                                  className="px-3 py-2 text-sm text-foreground border border-border rounded-lg hover:bg-border/40 transition-colors disabled:opacity-40"
                                 >
                                   Cancelar
                                 </button>
                                 <button
                                   onClick={() => handleRechazar(sol.id)}
-                                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+                                  disabled={actionLoading === sol.id}
+                                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-60"
                                 >
-                                  <XCircle className="w-4 h-4" />
+                                  {actionLoading === sol.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <XCircle className="w-4 h-4" />
+                                  )}
                                   Confirmar Rechazo
                                 </button>
                               </div>
@@ -456,16 +508,22 @@ export default function AprobacionesPage() {
                             <div className="flex gap-2 justify-end">
                               <button
                                 onClick={() => setShowRechazoInput(sol.id)}
-                                className="flex items-center gap-2 px-4 py-2.5 border border-red-600/40 text-red-400 rounded-lg text-sm font-medium hover:bg-red-900/20 transition-colors"
+                                disabled={actionLoading === sol.id}
+                                className="flex items-center gap-2 px-4 py-2.5 border border-red-600/40 text-red-400 rounded-lg text-sm font-medium hover:bg-red-900/20 transition-colors disabled:opacity-40"
                               >
                                 <XCircle className="w-4 h-4" />
                                 Rechazar
                               </button>
                               <button
                                 onClick={() => handleAprobar(sol.id)}
-                                className="flex items-center gap-2 px-5 py-2.5 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors"
+                                disabled={actionLoading === sol.id}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-60"
                               >
-                                <Check className="w-4 h-4" />
+                                {actionLoading === sol.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Check className="w-4 h-4" />
+                                )}
                                 Aprobar
                               </button>
                             </div>
