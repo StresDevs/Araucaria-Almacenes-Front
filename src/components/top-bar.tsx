@@ -57,19 +57,6 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
           )}
         </button>
         <button
-          className="p-2 hover:bg-border rounded-lg transition-colors hidden sm:flex"
-          aria-label="Configuración"
-        >
-          <Settings className="w-4 h-4 text-muted-foreground" />
-        </button>
-        <button
-          className="p-2 hover:bg-border rounded-lg transition-colors"
-          aria-label="Perfil de usuario"
-          title={currentUser?.nombre || 'Usuario'}
-        >
-          <User className="w-4 h-4 text-muted-foreground" />
-        </button>
-        <button
           onClick={logout}
           className="p-2 hover:bg-red-500/10 rounded-lg transition-colors hidden sm:flex"
           aria-label="Cerrar sesión"
