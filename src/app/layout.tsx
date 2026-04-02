@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import { DM_Sans, JetBrains_Mono, Geist, Geist_Mono } from 'next/font/google'
-import { Analytics } from '@vercel/analytics/next'
 import { AppProviders } from '@/providers'
 import './globals.css'
 
@@ -52,7 +51,6 @@ export default function RootLayout({
       <body className={`${dmSans.variable} ${jetbrainsMono.variable} font-sans antialiased bg-background text-foreground`}>
         <AppProviders>
           {children}
-          <Analytics />
         </AppProviders>
       </body>
     </html>
