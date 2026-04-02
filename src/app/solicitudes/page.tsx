@@ -303,7 +303,9 @@ export default function SolicitudesPage() {
   const fetchCatalogItems = useCallback(async () => {
     setCatalogLoading(true)
     try {
-      const res = await solicitudesService.getItemsDisponibles()
+      const res = await solicitudesService.getItemsDisponibles(
+        selectedObraId ? { obraId: selectedObraId } : undefined,
+      )
       setCatalogItems(res.data)
     } catch (err) {
       const msg = err instanceof HttpError ? err.message : 'Error al cargar materiales'
@@ -311,7 +313,7 @@ export default function SolicitudesPage() {
     } finally {
       setCatalogLoading(false)
     }
-  }, [toast])
+  }, [toast, selectedObraId])
 
   useEffect(() => {
     if (formStep === 'materiales') {

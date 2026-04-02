@@ -55,8 +55,11 @@ export const solicitudesService = {
   },
 
   /** Fetch available items with stock info */
-  getItemsDisponibles(almacenId?: string): Promise<ApiResponse<ItemDisponible[]>> {
-    const qs = almacenId ? `?almacenId=${almacenId}` : ''
+  getItemsDisponibles(params?: { almacenId?: string; obraId?: string }): Promise<ApiResponse<ItemDisponible[]>> {
+    const searchParams = new URLSearchParams()
+    if (params?.almacenId) searchParams.set('almacenId', params.almacenId)
+    if (params?.obraId) searchParams.set('obraId', params.obraId)
+    const qs = searchParams.toString() ? `?${searchParams.toString()}` : ''
     return apiClient.get(`/solicitudes/items-disponibles${qs}`)
   },
 
