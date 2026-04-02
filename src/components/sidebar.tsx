@@ -28,8 +28,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const operaciones = [
     { name: 'Entrega de Material', href: '/solicitudes', icon: FileText },
-    { name: 'Devoluciones', href: '/devoluciones', icon: LogOut },
-    { name: 'Préstamos', href: '/prestamos', icon: Package },
+    { name: 'Control Almacén', href: '/prestamos', icon: Package },
     { name: 'Registro de Bajas', href: '/bajas', icon: Trash2 },
   ]
 

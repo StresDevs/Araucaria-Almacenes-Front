@@ -168,8 +168,37 @@ export interface Almacen {
   obra_nombre: string | null
 }
 
-// ─── Préstamos ────────────────────────────────────────────────────────────────
+// ─── Préstamos / Control de Almacén ───────────────────────────────────────────
 
+export type EstadoPrestamo = 'prestado' | 'devuelto' | 'consumido'
+
+export interface PrestamoRegistro {
+  id: string
+  item_id: string
+  item_codigo: string
+  item_nombre: string
+  item_descripcion: string
+  item_categoria: string
+  cantidad: number
+  unidad: string
+  obra_id: string | null
+  obra_nombre: string | null
+  seccion: string | null
+  persona_prestamo: string
+  contratista_id: string | null
+  contratista_nombre: string | null
+  contratista_empresa: string | null
+  estado: EstadoPrestamo
+  hora_prestamo: string
+  hora_devolucion: string | null
+  fecha_devolucion: string | null
+  notas: string | null
+  registrado_por: string
+  created_at: string
+  updated_at: string
+}
+
+// Keep legacy type for backward compat
 export interface Prestamo {
   id: string
   item: string
