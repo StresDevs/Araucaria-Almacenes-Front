@@ -3,11 +3,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { prestamosService } from '@/services'
 import { HttpError } from '@/services'
-import type { Prestamo } from '@/types'
-import type { GetPrestamosParams, CreatePrestamoDto } from '@/services/endpoints/prestamos.service'
+import type { PrestamoRegistro } from '@/types'
+import type { GetPrestamosParams, CreatePrestamoPayload, DevolverPrestamoPayload } from '@/services/endpoints/prestamos.service'
 
 interface UsePrestamosState {
-  prestamos: Prestamo[]
+  prestamos: PrestamoRegistro[]
   isLoading: boolean
   error: string | null
 }
@@ -35,7 +35,7 @@ export function usePrestamos(params?: GetPrestamosParams) {
     fetchPrestamos()
   }, [fetchPrestamos])
 
-  const createPrestamo = useCallback(async (dto: CreatePrestamoDto): Promise<boolean> => {
+  const createPrestamo = useCallback(async (dto: CreatePrestamoPayload): Promise<boolean> => {
     try {
       await prestamosService.create(dto)
       await fetchPrestamos()
@@ -45,9 +45,9 @@ export function usePrestamos(params?: GetPrestamosParams) {
     }
   }, [fetchPrestamos])
 
-  const markReturned = useCallback(async (id: string): Promise<boolean> => {
+  const devolver = useCallback(async (id: string, dto?: DevolverPrestamoPayload): Promise<boolean> => {
     try {
-      await prestamosService.markReturned(id)
+      await prestamosService.devolver(id, dto)
       await fetchPrestamos()
       return true
     } catch {
@@ -61,6 +61,6 @@ export function usePrestamos(params?: GetPrestamosParams) {
     error: state.error,
     refetch: fetchPrestamos,
     createPrestamo,
-    markReturned,
+    devolver,
   }
 }

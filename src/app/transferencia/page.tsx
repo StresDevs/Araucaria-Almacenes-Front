@@ -5,7 +5,20 @@ import { AppShell } from '@/components/app-shell'
 import { useAlmacenes } from '@/hooks/use-almacenes'
 import { inventarioService, transferenciasService } from '@/services'
 import type { AlmacenItemResponse } from '@/services'
-import { ArrowRight, ArrowLeft, Upload, Send, Loader2, Check, Minus, Plus, X, Search, ChevronDown } from 'lucide-react'
+import { ArrowRight, ArrowLeft, Upload, Send, Loader2, Check, Minus, Plus, X, Search, ChevronDown, Package } from 'lucide-react'
+import type { ItemInventario } from '@/types'
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? ''
+
+function getItemImage(item: ItemInventario): string {
+  if (item.foto_url) return `${API_BASE}${item.foto_url}`
+  const d = ((item.descripcion ?? '') + ' ' + item.codigo).toLowerCase()
+  if (d.includes('porcelanato') || d.includes('mosaico') || d.includes('cristal')) return '/items/porcelanato.jpg'
+  if (d.includes('puerta') || d.includes('door') || d.includes('flush')) return '/items/puerta.jpg'
+  if (d.includes('piso') || d.includes('laminado') || d.includes('underlayment')) return '/items/piso-laminado.jpg'
+  if (d.includes('extractor') || d.includes('encimera') || d.includes('horno') || d.includes('microonda')) return '/items/electrodomestico.jpg'
+  return '/items/material-general.jpg'
+}
 
 type Step = 'almacenes' | 'items' | 'evidencia' | 'confirmacion'
 const STEPS: Step[] = ['almacenes', 'items', 'evidencia', 'confirmacion']
@@ -17,6 +30,7 @@ interface AllocatedItem {
   nombre: string | null
   descripcion: string | null
   unidad: string
+  fotoUrl: string
   stockOrigen: number
   allocations: { almacenDestinoId: string; cantidad: number }[]
 }
@@ -46,8 +60,21 @@ export default function TransferenciaPage() {
   const [submitError, setSubmitError] = useState('')
 
   const activeAlmacenes = useMemo(() => almacenes.filter((a) => a.estado === 'activo'), [almacenes])
-  const destinosArr = useMemo(() => activeAlmacenes.filter((a) => destinoIds.has(a.id)), [activeAlmacenes, destinoIds])
+  const destinosArr = useMemo(() => {
+    const selected = activeAlmacenes.filter((a) => destinoIds.has(a.id))
+    return selected.sort((a, b) => {
+      if (a.tipo_almacen === 'fijo' && b.tipo_almacen !== 'fijo') return -1
+      if (a.tipo_almacen !== 'fijo' && b.tipo_almacen === 'fijo') return 1
+      const obraA = a.obra_nombre ?? ''
+      const obraB = b.obra_nombre ?? ''
+      if (obraA !== obraB) return obraA.localeCompare(obraB)
+      return a.nombre.localeCompare(b.nombre)
+    })
+  }, [activeAlmacenes, destinoIds])
   const origenAlmacen = activeAlmacenes.find((a) => a.id === almacenOrigenId)
+
+  const almacenLabel = (alm: typeof activeAlmacenes[number]) =>
+    alm.tipo_almacen === 'obra' && alm.obra_nombre ? `${alm.nombre} — ${alm.obra_nombre}` : alm.nombre
 
   // Fetch items when origin changes
   useEffect(() => {
@@ -108,6 +135,7 @@ export default function TransferenciaPage() {
         nombre: item?.nombre ?? null,
         descripcion: item?.descripcion ?? null,
         unidad: item?.unidad ?? 'pza',
+        fotoUrl: item ? getItemImage(item) : '/items/material-general.jpg',
         stockOrigen: ai.cantidad,
         allocations: Array.from(destinoIds).map((did) => ({ almacenDestinoId: did, cantidad: 0 })),
       },
@@ -252,6 +280,9 @@ export default function TransferenciaPage() {
                     }`}
                   >
                     <p className="font-bold text-foreground text-sm">{alm.nombre}</p>
+                    {alm.tipo_almacen === 'obra' && alm.obra_nombre && (
+                      <p className="text-xs text-accent mt-0.5">{alm.obra_nombre}</p>
+                    )}
                     <p className="text-xs text-muted-foreground mt-1">{alm.tipo_almacen === 'fijo' ? 'Almacén fijo' : 'Obra'} — {alm.items_count} ítems</p>
                   </button>
                 ))}
@@ -272,7 +303,10 @@ export default function TransferenciaPage() {
                       }`}
                     >
                       <p className="font-bold text-foreground text-sm">{alm.nombre}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{alm.tipo_almacen === 'fijo' ? 'Almacén fijo' : 'Obra'}</p>
+                      {alm.tipo_almacen === 'obra' && alm.obra_nombre && (
+                        <p className="text-xs text-accent mt-0.5">{alm.obra_nombre}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-1">{alm.tipo_almacen === 'fijo' ? 'Almacén fijo' : 'Obra'} — {alm.items_count} ítems</p>
                     </button>
                   ))}
                 </div>
@@ -301,7 +335,7 @@ export default function TransferenciaPage() {
               </div>
 
               {/* Items list */}
-              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
                 {loadingItems ? (
                   <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
                     <Loader2 className="w-5 h-5 animate-spin" /> Cargando...
@@ -315,6 +349,7 @@ export default function TransferenciaPage() {
                     const isAdded = allocatedItems.some((a) => a.itemId === ai.item_id)
                     const allocated = allocatedItems.find((a) => a.itemId === ai.item_id)
                     const remaining = allocated ? ai.cantidad - totalAllocated(allocated) : ai.cantidad
+                    const imgSrc = ai.item ? getItemImage(ai.item) : '/items/material-general.jpg'
                     return (
                       <button
                         key={ai.id}
@@ -328,15 +363,19 @@ export default function TransferenciaPage() {
                             : 'border-border hover:border-accent hover:bg-accent/5'
                         }`}
                       >
+                        <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg overflow-hidden bg-background border border-border shrink-0">
+                          <img src={imgSrc} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = '/items/material-general.jpg' }} />
+                        </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-mono text-xs text-muted-foreground">{ai.item?.codigo ?? '—'}</p>
-                          <p className="text-sm font-medium text-foreground truncate">{ai.item?.descripcion ?? ai.item?.nombre ?? '—'}</p>
+                          <p className="text-sm font-medium text-foreground line-clamp-2">{ai.item?.descripcion ?? ai.item?.nombre ?? '—'}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{ai.item?.unidad ?? ''}</p>
                         </div>
                         <div className="text-right shrink-0">
                           <p className={`text-sm font-bold ${isAdded && remaining === 0 ? 'text-red-400' : 'text-accent'}`}>
                             {isAdded ? remaining : ai.cantidad}
                           </p>
-                          <p className="text-xs text-muted-foreground">{ai.item?.unidad ?? ''}</p>
+                          <p className="text-xs text-muted-foreground">disp.</p>
                         </div>
                       </button>
                     )
@@ -366,14 +405,19 @@ export default function TransferenciaPage() {
                         onClick={() => toggleCollapseDestino(dest.id)}
                         className="w-full flex items-center justify-between p-4 hover:bg-accent/5 transition-colors"
                       >
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-accent" />
-                          <h3 className="text-sm font-bold text-foreground">{dest.nombre}</h3>
-                          <span className="text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
+                          <div className="min-w-0">
+                            <h3 className="text-sm font-bold text-foreground truncate">{dest.nombre}</h3>
+                            {dest.tipo_almacen === 'obra' && dest.obra_nombre && (
+                              <p className="text-xs text-accent truncate">{dest.obra_nombre}</p>
+                            )}
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0">
                             ({itemsWithQty} {itemsWithQty === 1 ? 'ítem' : 'ítems'})
                           </span>
                         </div>
-                        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isCollapsed ? '' : 'rotate-180'}`} />
+                        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform shrink-0 ${isCollapsed ? '' : 'rotate-180'}`} />
                       </button>
 
                       {!isCollapsed && (
@@ -384,6 +428,9 @@ export default function TransferenciaPage() {
                             const remaining = item.stockOrigen - totalAllocated(item)
                             return (
                               <div key={item.itemId} className="flex items-center gap-2 bg-background border border-border rounded-lg p-2">
+                                <div className="w-9 h-9 rounded overflow-hidden bg-border shrink-0">
+                                  <img src={item.fotoUrl} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = '/items/material-general.jpg' }} />
+                                </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs font-medium text-foreground truncate">{item.descripcion ?? item.nombre ?? '—'}</p>
                                   <p className="text-xs text-muted-foreground">
@@ -468,30 +515,53 @@ export default function TransferenciaPage() {
               <p className="text-xs text-muted-foreground mb-1">Destino(s)</p>
               <div className="flex flex-wrap gap-2 mt-1">
                 {destinosArr.map((d) => (
-                  <span key={d.id} className="px-2 py-1 rounded bg-accent/20 text-accent text-sm font-medium">{d.nombre}</span>
+                  <span key={d.id} className="px-2 py-1 rounded bg-accent/20 text-accent text-sm font-medium">
+                    {almacenLabel(d)}
+                  </span>
                 ))}
               </div>
             </div>
 
             <div className="bg-background border border-border rounded-lg p-4">
-              <p className="text-xs text-muted-foreground mb-2">Ítems a transferir</p>
-              <div className="space-y-3">
-                {itemsWithAllocations.map((item) => (
-                  <div key={item.itemId} className="border border-border rounded-lg p-3">
-                    <p className="font-mono text-xs text-muted-foreground">{item.codigo}</p>
-                    <p className="text-sm font-medium text-foreground">{item.descripcion ?? item.nombre ?? '—'}</p>
-                    <div className="mt-2 space-y-1">
-                      {item.allocations.filter((al) => al.cantidad > 0).map((al) => {
-                        const dest = destinosArr.find((d) => d.id === al.almacenDestinoId)
-                        return (
-                          <p key={al.almacenDestinoId} className="text-xs text-muted-foreground">
-                            → {dest?.nombre}: <span className="font-bold text-accent">{al.cantidad} {item.unidad}</span>
-                          </p>
-                        )
-                      })}
+              <p className="text-xs text-muted-foreground mb-3">Ítems a transferir por destino</p>
+              <div className="space-y-4">
+                {destinosArr.map((dest) => {
+                  const destItems = itemsWithAllocations
+                    .map((item) => {
+                      const al = item.allocations.find((a) => a.almacenDestinoId === dest.id)
+                      return al && al.cantidad > 0 ? { ...item, cantDest: al.cantidad } : null
+                    })
+                    .filter(Boolean) as (AllocatedItem & { cantDest: number })[]
+                  if (destItems.length === 0) return null
+                  return (
+                    <div key={dest.id} className="border border-border rounded-lg overflow-hidden">
+                      <div className="bg-accent/5 px-4 py-3 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-accent" />
+                        <div>
+                          <p className="text-sm font-bold text-foreground">{dest.nombre}</p>
+                          {dest.tipo_almacen === 'obra' && dest.obra_nombre && (
+                            <p className="text-xs text-accent">{dest.obra_nombre}</p>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground ml-auto">{destItems.length} {destItems.length === 1 ? 'ítem' : 'ítems'}</span>
+                      </div>
+                      <div className="divide-y divide-border">
+                        {destItems.map((item) => (
+                          <div key={item.itemId} className="px-4 py-2.5 flex items-center gap-3">
+                            <div className="w-9 h-9 rounded overflow-hidden bg-border shrink-0">
+                              <img src={item.fotoUrl} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = '/items/material-general.jpg' }} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-mono text-xs text-muted-foreground">{item.codigo}</p>
+                              <p className="text-sm font-medium text-foreground truncate">{item.descripcion ?? item.nombre ?? '—'}</p>
+                            </div>
+                            <p className="text-sm font-bold text-accent shrink-0">{item.cantDest} {item.unidad}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 
