@@ -8,8 +8,9 @@ import { bajasService, inventarioService, categoriasService, HttpError } from '@
 import type { SolicitudBaja, MotivoBaja, ItemInventario, CategoriaItem } from '@/types'
 import {
   Trash2, Search, Upload, Send, ClipboardList, Plus, X, Image as ImageIcon,
-  Check, Clock, XCircle, ChevronDown, Package, Loader2, AlertCircle,
+  Check, Clock, XCircle, ChevronDown, Package, Loader2, AlertCircle, FileDown,
 } from 'lucide-react'
+import { generateBajaPDF } from '@/lib/generate-baja-pdf'
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ export default function BajasPage() {
   const [showSearchResults, setShowSearchResults] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [lastCreatedBaja, setLastCreatedBaja] = useState<SolicitudBaja | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // API data
@@ -187,13 +189,14 @@ export default function BajasPage() {
 
     setIsSubmitting(true)
     try {
-      await bajasService.create({
+      const res = await bajasService.create({
         itemId: selectedItem.id,
         cantidad: parseInt(cantidad, 10),
         motivo,
         descripcionMotivo: descripcionMotivo.trim(),
         evidencia: evidenciaFile ?? undefined,
       })
+      setLastCreatedBaja(res.data)
       toast({ title: 'Solicitud enviada', description: 'Tu solicitud de baja fue enviada al administrador para su aprobación' })
       setSubmitted(true)
     } catch (err) {
@@ -211,6 +214,15 @@ export default function BajasPage() {
     setDescripcionMotivo('')
     handleRemoveFile()
     setSubmitted(false)
+    setLastCreatedBaja(null)
+  }
+
+  const handleDownloadPDF = async (baja: SolicitudBaja, evidUrl?: string | null) => {
+    try {
+      await generateBajaPDF(baja, baja.solicitante || user?.nombre || 'Encargado', evidUrl)
+    } catch {
+      toast({ title: 'Error', description: 'No se pudo generar el PDF', variant: 'destructive' })
+    }
   }
 
   const formatDate = (iso: string) => {
@@ -565,7 +577,16 @@ export default function BajasPage() {
               Tu solicitud de baja para <span className="font-semibold text-foreground">{selectedItem?.descripcion || selectedItem?.nombre}</span> ha sido
               enviada al administrador para su aprobación.
             </p>
-            <div className="flex gap-3 justify-center pt-2">
+            <div className="flex gap-3 justify-center pt-2 flex-wrap">
+              {lastCreatedBaja && (
+                <button
+                  onClick={() => handleDownloadPDF(lastCreatedBaja, lastCreatedBaja.evidencia_url ? `${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}/${lastCreatedBaja.evidencia_url}` : evidenciaPreview)}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+                >
+                  <FileDown className="w-4 h-4" />
+                  Descargar PDF
+                </button>
+              )}
               <button
                 onClick={handleReset}
                 className="flex items-center gap-2 px-4 py-2.5 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors"
@@ -724,6 +745,17 @@ export default function BajasPage() {
                                 </a>
                               </div>
                             )}
+
+                            {/* PDF download button */}
+                            <div className="flex justify-end">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDownloadPDF(sol, sol.evidencia_url ? `${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}/${sol.evidencia_url}` : null) }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600/20 text-green-400 border border-green-600/30 rounded-lg text-xs font-medium hover:bg-green-600/30 transition-colors"
+                              >
+                                <FileDown className="w-3.5 h-3.5" />
+                                Descargar PDF
+                              </button>
+                            </div>
 
                             {sol.revisado_por && (
                               <div className="pt-2 border-t border-border/50">
