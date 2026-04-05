@@ -375,6 +375,7 @@ export interface ObraSectorizacion {
 export type TipoSolicitudAprobacion =
   | 'baja_producto'
   | 'edicion_stock'
+  | 'edicion_inventario'
   | 'transferencia_atrasada'
   | 'entrega_retroactiva'
 
@@ -401,6 +402,11 @@ export interface SolicitudAprobacion {
   campo_editado?: string
   valor_anterior?: string
   valor_nuevo?: string
+  // Data for inventory edit
+  item_id?: string
+  justificacion?: string
+  cambios_propuestos?: { campo: string; anterior: string; nuevo: string }[]
+  update_dto?: Record<string, unknown>
   // Data for transfer
   almacen_origen?: string
   almacen_destino?: string

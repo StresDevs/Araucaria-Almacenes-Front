@@ -9,7 +9,7 @@ import { aprobacionesService, HttpError } from '@/services'
 import {
   ShieldCheck, Trash2, Edit3, ArrowLeftRight, Clock, Check, XCircle,
   ChevronDown, AlertTriangle, Image as ImageIcon,
-  User, Calendar, Filter, Loader2, Package, RotateCcw,
+  User, Calendar, Filter, Loader2, Package, RotateCcw, FileEdit,
 } from 'lucide-react'
 import type {
   SolicitudAprobacion,
@@ -31,6 +31,12 @@ const TIPO_CONFIG: Record<TipoSolicitudAprobacion, { label: string; icon: typeof
     icon: Edit3,
     color: 'text-blue-400',
     bgColor: 'bg-blue-900/20 border-blue-600/30',
+  },
+  edicion_inventario: {
+    label: 'Edición de Inventario',
+    icon: FileEdit,
+    color: 'text-cyan-400',
+    bgColor: 'bg-cyan-900/20 border-cyan-600/30',
   },
   transferencia_atrasada: {
     label: 'Transferencia Atrasada',
@@ -110,6 +116,7 @@ export default function AprobacionesPage() {
   const pendientesTotal = allSolicitudes.filter(s => s.estado === 'pendiente').length
   const bajasPendientes = allSolicitudes.filter(s => s.tipo === 'baja_producto' && s.estado === 'pendiente').length
   const stockPendientes = allSolicitudes.filter(s => s.tipo === 'edicion_stock' && s.estado === 'pendiente').length
+  const edicionPendientes = allSolicitudes.filter(s => s.tipo === 'edicion_inventario' && s.estado === 'pendiente').length
   const transfPendientes = allSolicitudes.filter(s => s.tipo === 'transferencia_atrasada' && s.estado === 'pendiente').length
   const entregaPendientes = allSolicitudes.filter(s => s.tipo === 'entrega_retroactiva' && s.estado === 'pendiente').length
 
@@ -211,6 +218,13 @@ export default function AprobacionesPage() {
           </div>
           <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
             <div className="flex items-center gap-2 mb-1">
+              <FileEdit className="w-3.5 h-3.5 text-cyan-400" />
+              <p className="text-xs text-muted-foreground font-mono uppercase">Ediciones</p>
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-cyan-400">{edicionPendientes}</p>
+          </div>
+          <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
+            <div className="flex items-center gap-2 mb-1">
               <ArrowLeftRight className="w-3.5 h-3.5 text-purple-400" />
               <p className="text-xs text-muted-foreground font-mono uppercase">Transfer.</p>
             </div>
@@ -235,7 +249,7 @@ export default function AprobacionesPage() {
             <div className="flex-1">
               <p className="text-xs text-muted-foreground mb-1.5">Tipo de solicitud</p>
               <div className="flex gap-1.5 flex-wrap">
-                {(['todos', 'baja_producto', 'edicion_stock', 'transferencia_atrasada', 'entrega_retroactiva'] as const).map(t => {
+                {(['todos', 'baja_producto', 'edicion_stock', 'edicion_inventario', 'transferencia_atrasada', 'entrega_retroactiva'] as const).map(t => {
                   const label = t === 'todos' ? 'Todos' : TIPO_CONFIG[t].label
                   return (
                     <button
@@ -291,8 +305,8 @@ export default function AprobacionesPage() {
             </div>
           ) : (
             solicitudes.map(sol => {
-              const tipo = TIPO_CONFIG[sol.tipo]
-              const est = ESTADO_STYLES[sol.estado]
+              const tipo = TIPO_CONFIG[sol.tipo] ?? { label: sol.tipo, icon: Edit3, color: 'text-gray-400', bgColor: 'bg-gray-900/20 border-gray-600/30' }
+              const est = ESTADO_STYLES[sol.estado] ?? { bg: 'bg-gray-900/20 border-gray-600/30', text: 'text-gray-400', icon: Clock, label: sol.estado }
               const TipoIcon = tipo.icon
               const EstIcon = est.icon
               const isExpanded = expandedId === sol.id
@@ -398,6 +412,48 @@ export default function AprobacionesPage() {
                             <p className="text-xs text-muted-foreground mb-0.5">Valor nuevo</p>
                             <p className="text-sm text-green-400 font-mono font-bold">{sol.valor_nuevo}</p>
                           </div>
+                        </div>
+                      )}
+
+                      {sol.tipo === 'edicion_inventario' && (
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-0.5">Producto</p>
+                            <p className="text-sm text-foreground">
+                              <span className="font-mono text-accent text-xs">{sol.item_codigo}</span>
+                              <span className="mx-1.5">·</span>
+                              {sol.item_descripcion}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-0.5">Justificación</p>
+                            <p className="text-sm text-foreground italic">{sol.justificacion}</p>
+                          </div>
+                          {sol.cambios_propuestos && sol.cambios_propuestos.length > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1.5">Cambios propuestos</p>
+                              <div className="border border-border rounded-lg overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-border/20">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left text-xs font-semibold text-foreground">Campo</th>
+                                      <th className="px-3 py-2 text-left text-xs font-semibold text-foreground">Valor Anterior</th>
+                                      <th className="px-3 py-2 text-left text-xs font-semibold text-foreground">Valor Nuevo</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-border">
+                                    {sol.cambios_propuestos.map((c, i) => (
+                                      <tr key={i}>
+                                        <td className="px-3 py-2 text-foreground font-medium text-xs">{c.campo}</td>
+                                        <td className="px-3 py-2 text-red-400 font-mono text-xs">{c.anterior || '—'}</td>
+                                        <td className="px-3 py-2 text-green-400 font-mono text-xs">{c.nuevo || '—'}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
