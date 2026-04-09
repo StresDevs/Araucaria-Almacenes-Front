@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf'
 import type { SolicitudBaja, MotivoBaja } from '@/types'
+import { drawPDFHeader, applyPDFFooterToAllPages, loadImageAsBase64, formatDatePDF } from '@/lib/pdf-layout'
 
 const MOTIVO_LABELS: Record<MotivoBaja, string> = {
   daño: 'Daño',
@@ -9,26 +10,6 @@ const MOTIVO_LABELS: Record<MotivoBaja, string> = {
   obsoleto: 'Obsoleto',
   defecto_fabrica: 'Defecto de Fábrica',
   otro: 'Otro',
-}
-
-/**
- * Load an image from a URL and return it as a base64 data URL.
- */
-function loadImageAsBase64(url: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight
-      const ctx = canvas.getContext('2d')!
-      ctx.drawImage(img, 0, 0)
-      resolve(canvas.toDataURL('image/png'))
-    }
-    img.onerror = reject
-    img.src = url
-  })
 }
 
 function formatDateTimePDF(iso: string): { fecha: string; hora: string } {
@@ -79,32 +60,20 @@ export async function generateBajaPDF(
   const mr = 20 // margin right
   const contentW = pageW - ml - mr
 
-  let y = 15
+  // ── Standard Header ──
+  const headerDate = formatDatePDF(baja.fecha_solicitud)
+  const { contentStartY } = await drawPDFHeader(doc, {
+    title: 'INFORME TÉCNICO',
+    date: headerDate,
+  })
 
-  // ── Logo ──
-  try {
-    const logoBase64 = await loadImageAsBase64('/araucaria-logo.png')
-    const logoW = 55
-    const logoH = 22
-    doc.addImage(logoBase64, 'PNG', (pageW - logoW) / 2, y, logoW, logoH)
-    y += logoH + 8
-  } catch {
-    // If logo fails to load, skip it
-    y += 5
-  }
+  let y = contentStartY
 
-  // ── Title ──
+  // ── Document subtitle ──
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(16)
+  doc.setFontSize(13)
   doc.setTextColor(50, 50, 50)
   doc.text('SOLICITUD DE BAJA DE MATERIAL', pageW / 2, y, { align: 'center' })
-  y += 8
-
-  // ── Subtitle ──
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(130, 130, 130)
-  doc.text('Araucaria Construcciones — Control de Almacenes', pageW / 2, y, { align: 'center' })
   y += 10
 
   drawLine(doc, y, ml, mr)
@@ -278,17 +247,8 @@ export async function generateBajaPDF(
   doc.setTextColor(160, 160, 160)
   doc.text('Sello', selStartX + colW / 2, y + 15, { align: 'center' })
 
-  // ── Footer ──
-  const footerY = pageH - 10
-  doc.setFont('helvetica', 'italic')
-  doc.setFontSize(7)
-  doc.setTextColor(170, 170, 170)
-  doc.text(
-    `Generado el ${new Date().toLocaleDateString('es-PE')} — Araucaria Construcciones S.A.C.`,
-    pageW / 2,
-    footerY,
-    { align: 'center' },
-  )
+  // ── Apply standard footer to all pages ──
+  applyPDFFooterToAllPages(doc)
 
   // ── Save ──
   const filename = `Baja_${baja.item_codigo}_${fecha.replace(/\s/g, '-')}.pdf`

@@ -6,6 +6,7 @@ import {
   Search, Calendar, ChevronDown, FileSpreadsheet, FileText,
   BarChart3, Package, Building2, Layers,
 } from 'lucide-react'
+import { getHTMLPDFStyles, getHTMLPDFHeader, getHTMLPDFFooter, formatDatePDF } from '@/lib/pdf-layout'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -296,14 +297,12 @@ function exportToPDF(data: ConsumoData) {
   const floorRowsHtml = groups.map((group, gIdx) => {
     const pdfColor = group.colorIdx >= 0 ? FLOOR_PDF_COLORS[group.colorIdx % FLOOR_PDF_COLORS.length] : { bg: '#fff8f0', border: '#d97706', text: '#92400e', badge: '#d97706', subtotalBg: '#fef3c7' }
 
-    // Floor header row
     const floorHeader = `<tr>
       <td colspan="${data.items.length + 1}" style="background:${pdfColor.badge}; color:#fff; font-weight:700; font-size:9px; padding:5px 10px; letter-spacing:0.5px; border:1px solid ${pdfColor.border};">
         ${escapeHtml(group.label)} ${group.piso !== 'rotura' ? `(${group.deptos.length} departamentos)` : ''}
       </td>
     </tr>`
 
-    // Data rows
     const dataRows = group.deptos.map((dept, dIdx) => {
       const isRotura = dept === 'rotura'
       const rowBg = dIdx % 2 === 0 ? pdfColor.bg : '#ffffff'
@@ -316,7 +315,6 @@ function exportToPDF(data: ConsumoData) {
       </tr>`
     }).join('')
 
-    // Subtotal row
     const subtotalRow = group.deptos.length > 1 ? `<tr>
       <td style="background:${pdfColor.subtotalBg}; font-weight:700; text-align:left; padding:4px 8px; border:1px solid ${pdfColor.border}; color:${pdfColor.text};">Subtotal ${escapeHtml(group.label)}</td>
       ${data.items.map(item => {
@@ -335,44 +333,30 @@ function exportToPDF(data: ConsumoData) {
 <style>
   @page { size: landscape; margin: 12mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9px; color: #1a1a1a; background: #fff; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9px; color: #1a1a1a; background: #fff; padding-bottom: 30px; }
 
-  .header { display: flex; align-items: center; justify-content: space-between; padding: 10px 0 8px 0; border-bottom: 3px solid #4a7c59; margin-bottom: 6px; }
-  .header-left { display: flex; align-items: center; gap: 14px; }
-  .header-logo { width: 110px; height: auto; }
-  .header-title h1 { font-size: 15px; font-weight: 700; color: #2d5a3d; margin-bottom: 1px; }
-  .header-title h2 { font-size: 11px; font-weight: 600; color: #4a7c59; }
-  .header-right { text-align: right; font-size: 8.5px; color: #666; }
-  .header-right p { margin-bottom: 1px; }
+  ${getHTMLPDFStyles()}
 
-  table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid #c8d6c0; padding: 3px 5px; text-align: center; font-size: 8px; }
-  th { background: #4a7c59; color: #fff; font-weight: 600; letter-spacing: 0.3px; }
+  .subtitle { text-align: center; font-size: 12px; font-weight: 700; color: #2d5a3d; margin: 4px 0 2px 0; }
+  .subtitle-obra { text-align: center; font-size: 10px; font-weight: 600; color: #4a7c59; margin-bottom: 6px; }
+
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th, .data-table td { border: 1px solid #c8d6c0; padding: 3px 5px; text-align: center; font-size: 8px; }
+  .data-table th { background: #4a7c59; color: #fff; font-weight: 600; letter-spacing: 0.3px; }
   .meta-row th.label { background: #2d5a3d; text-align: left; width: 90px; font-size: 8px; }
   .meta-row td { font-weight: 500; font-size: 8px; background: #f5f9f5; }
   .total-row td { background: #2d5a3d; color: #fff; font-weight: 700; font-size: 8.5px; border-color: #2d5a3d; }
-
-  .footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }
 
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 </style>
 </head><body>
 
-<div class="header">
-  <div class="header-left">
-    <img src="/araucaria-logo.png" class="header-logo" alt="Araucaria" crossorigin="anonymous" />
-    <div class="header-title">
-      <h1>Reporte Consumo ${escapeHtml(data.material_tipo)}</h1>
-      <h2>${escapeHtml(data.obra_nombre)}</h2>
-    </div>
-  </div>
-  <div class="header-right">
-    <p><strong>Fecha del reporte:</strong> ${today}</p>
-    <p><strong>Actualización datos:</strong> ${formatDateShort(data.fecha_actualizacion)}</p>
-  </div>
-</div>
+${getHTMLPDFHeader({ title: 'INFORME TÉCNICO', date: formatDatePDF() })}
 
-<table>
+<div class="subtitle">Reporte Consumo ${escapeHtml(data.material_tipo)}</div>
+<div class="subtitle-obra">${escapeHtml(data.obra_nombre)} · Actualización: ${formatDateShort(data.fecha_actualizacion)}</div>
+
+<table class="data-table">
   <thead>
     <tr><th class="label" style="background:#2d5a3d; text-align:left; width:90px;">Aplicación</th>${data.items.map(i => `<th>${escapeHtml(i.aplicacion)}</th>`).join('')}</tr>
     <tr class="meta-row"><th class="label">ITEM</th>${data.items.map(i => `<td style="font-weight:700;">${escapeHtml(i.item_code)}</td>`).join('')}</tr>
@@ -391,10 +375,7 @@ function exportToPDF(data: ConsumoData) {
   </tbody>
 </table>
 
-<div class="footer">
-  <span>ARAUCARIA CONSTRUCCIONES · Sistema de Gestión de Almacenes</span>
-  <span>Reporte Consumo ${escapeHtml(data.material_tipo)} - ${today}</span>
-</div>
+${getHTMLPDFFooter()}
 
 </body></html>`
 

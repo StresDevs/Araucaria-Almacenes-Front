@@ -7,6 +7,7 @@ import { useObras } from '@/hooks/use-obras'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/providers/auth-provider'
 import { HttpError } from '@/services'
+import { getHTMLPDFStyles, getHTMLPDFHeader, getHTMLPDFFooter, formatDatePDF } from '@/lib/pdf-layout'
 import type { Contratista, OrdenEntrega, ObraSectorizacion, Sector, Piso, Departamento } from '@/types'
 import {
   Search,
@@ -133,44 +134,28 @@ function exportToPDF(ordenes: OrdenEntrega[]) {
 <style>
   @page { size: landscape; margin: 12mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: #fff; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: #fff; padding-bottom: 30px; }
 
-  .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 10px 0; border-bottom: 3px solid #4a7c59; margin-bottom: 10px; }
-  .header-left { display: flex; align-items: center; gap: 16px; }
-  .header-logo { width: 110px; height: auto; }
-  .header-title h1 { font-size: 16px; font-weight: 700; color: #2d5a3d; margin-bottom: 2px; }
-  .header-title h2 { font-size: 11px; font-weight: 600; color: #4a7c59; }
-  .header-right { text-align: right; font-size: 9px; color: #666; line-height: 1.6; }
-  .header-right strong { color: #333; }
+  ${getHTMLPDFStyles()}
+
+  .subtitle { text-align: center; font-size: 13px; font-weight: 700; color: #2d5a3d; margin: 6px 0 10px 0; }
 
   .stats-bar { display: flex; gap: 24px; margin-bottom: 10px; padding: 8px 14px; background: #f0f7f2; border: 1px solid #c8d6c0; border-radius: 6px; }
   .stat-item { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #4a7c59; }
   .stat-value { font-weight: 700; font-size: 13px; color: #2d5a3d; }
 
-  table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid #c8d6c0; padding: 5px 8px; text-align: left; font-size: 9px; }
-  th { background: #4a7c59; color: #fff; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; font-size: 8px; }
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th, .data-table td { border: 1px solid #c8d6c0; padding: 5px 8px; text-align: left; font-size: 9px; }
+  .data-table th { background: #4a7c59; color: #fff; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; font-size: 8px; }
   .total-row td { background: #2d5a3d; color: #fff; font-weight: 700; font-size: 9.5px; border-color: #2d5a3d; }
-
-  .footer { margin-top: 12px; padding-top: 8px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 8px; color: #999; }
 
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 </style>
 </head><body>
 
-<div class="header">
-  <div class="header-left">
-    <img src="/araucaria-logo.png" class="header-logo" alt="Araucaria" crossorigin="anonymous" />
-    <div class="header-title">
-      <h1>Órdenes de Entrega de Material</h1>
-      <h2>Reporte General de Solicitudes</h2>
-    </div>
-  </div>
-  <div class="header-right">
-    <p><strong>Fecha del reporte:</strong> ${today}</p>
-    <p><strong>Total de órdenes:</strong> ${ordenes.length}</p>
-  </div>
-</div>
+${getHTMLPDFHeader({ title: 'INFORME TÉCNICO', date: formatDatePDF() })}
+
+<div class="subtitle">Órdenes de Entrega de Material</div>
 
 <div class="stats-bar">
   <div class="stat-item"><span>Órdenes:</span> <span class="stat-value">${ordenes.length}</span></div>
@@ -178,7 +163,7 @@ function exportToPDF(ordenes: OrdenEntrega[]) {
   <div class="stat-item"><span>Unidades totales:</span> <span class="stat-value">${totalUnidades}</span></div>
 </div>
 
-<table>
+<table class="data-table">
   <thead>
     <tr>
       <th style="text-align:center; width:70px;">N° Orden</th>
@@ -204,10 +189,7 @@ function exportToPDF(ordenes: OrdenEntrega[]) {
   </tbody>
 </table>
 
-<div class="footer">
-  <span>ARAUCARIA CONSTRUCCIONES · Sistema de Gestión de Almacenes</span>
-  <span>Órdenes de Entrega de Material - ${today}</span>
-</div>
+${getHTMLPDFFooter()}
 
 </body></html>`
 
