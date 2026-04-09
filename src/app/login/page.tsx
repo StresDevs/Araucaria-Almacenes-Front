@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { useTheme } from 'next-themes'
 import { useAuth } from '@/providers/auth-provider'
 import { authService } from '@/services'
-import { Eye, EyeOff, Loader2, Sun, Moon, Lock, Mail } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Sun, Moon, Lock, User } from 'lucide-react'
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
@@ -26,7 +26,7 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const response = await authService.login({ email, password })
+      const response = await authService.login({ identifier, password })
       login(response.data.token, response.data.user)
     } catch (err: any) {
       setError(err?.message || 'Error al iniciar sesión')
@@ -129,29 +129,29 @@ export default function LoginPage() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1.5">
-                Correo electrónico
+              <label htmlFor="identifier" className="block text-sm font-medium text-foreground mb-1.5">
+                Correo o nombre de usuario
               </label>
               <div className={`relative rounded-xl border transition-all duration-300 ${
-                focusedField === 'email'
+                focusedField === 'identifier'
                   ? 'border-accent/60 ring-2 ring-accent/20 shadow-sm shadow-accent/10'
                   : 'border-border hover:border-accent/30'
               }`}>
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <Mail className={`w-4 h-4 transition-colors duration-300 ${
-                    focusedField === 'email' ? 'text-accent' : 'text-muted-foreground'
+                  <User className={`w-4 h-4 transition-colors duration-300 ${
+                    focusedField === 'identifier' ? 'text-accent' : 'text-muted-foreground'
                   }`} />
                 </div>
                 <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onFocus={() => setFocusedField('email')}
+                  id="identifier"
+                  type="text"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  onFocus={() => setFocusedField('identifier')}
                   onBlur={() => setFocusedField(null)}
-                  placeholder="usuario@araucaria.com"
+                  placeholder="usuario@araucaria.com o nombre.usuario"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-background/50 text-foreground placeholder:text-muted-foreground/60 focus:outline-none text-sm"
                 />
               </div>

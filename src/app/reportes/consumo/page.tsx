@@ -1,12 +1,18 @@
 'use client'
 
-import { useState, useMemo, Fragment } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef, Fragment } from 'react'
 import { AppShell } from '@/components/app-shell'
 import {
-  Search, Calendar, ChevronDown, FileSpreadsheet, FileText,
-  BarChart3, Package, Building2, Layers,
+  Search, ChevronDown, FileSpreadsheet, FileText,
+  BarChart3, Package, Building2, Layers, Loader2, Save,
 } from 'lucide-react'
 import { getHTMLPDFStyles, getHTMLPDFHeader, getHTMLPDFFooter, formatDatePDF } from '@/lib/pdf-layout'
+import { useObras } from '@/hooks/use-obras'
+import { useCategorias } from '@/hooks/use-categorias'
+import { useSectorizacion } from '@/hooks/use-sectorizacion'
+import { inventarioService, consumoService } from '@/services'
+import type { ItemInventario } from '@/types'
+import type { ConsumoRecord } from '@/services/endpoints/consumo.service'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,7 +28,7 @@ interface ItemConsumo {
 
 interface ConsumoData {
   id: string
-  material_tipo: string
+  categoria: string
   obra_id: string
   obra_nombre: string
   fecha_actualizacion: string
@@ -88,121 +94,35 @@ function groupByFloor(departamentos: string[]): FloorGroup[] {
   return groups
 }
 
-// ─── Mock Data ─────────────────────────────────────────────────────────────────
+// ─── calcM2PorCaja ─────────────────────────────────────────────────────────────
 
-const ITEMS_PORCELANATO: ItemConsumo[] = [
-  { id: 'porc-01', aplicacion: 'MUROS', item_code: '6130', codigo: 'YKL6000-B', medida: '60X30', m2_por_caja: 1.44, espacio_de_uso: 'COCINA - LAVANDERÍA' },
-  { id: 'porc-02', aplicacion: 'PISO', item_code: '6102', codigo: 'YPJ086S (Y96)', medida: '60X60', m2_por_caja: 1.44, espacio_de_uso: 'COCINA - LAVANDERÍA' },
-  { id: 'porc-03', aplicacion: 'MUROS', item_code: '6125', codigo: 'YC6A112B', medida: '30X60', m2_por_caja: 1.44, espacio_de_uso: 'BAÑO COMPARTIDO' },
-  { id: 'porc-04', aplicacion: 'PISO', item_code: '6064', codigo: 'YDY061 60X60', medida: '60X60', m2_por_caja: 1.44, espacio_de_uso: 'BAÑO VISITAS' },
-  { id: 'porc-05', aplicacion: 'MURO', item_code: '6042', codigo: 'YMCN1006 (06040)', medida: '30X30', m2_por_caja: 1.98, espacio_de_uso: 'BAÑO COMPARTIDO' },
-  { id: 'porc-06', aplicacion: 'PISO', item_code: '6110', codigo: 'K0633525TA', medida: '60x60', m2_por_caja: 1.44, espacio_de_uso: 'BAÑO PRINCIPAL' },
-  { id: 'porc-07', aplicacion: 'MURO', item_code: '6111', codigo: 'K0633525TA', medida: '30x60', m2_por_caja: 1.44, espacio_de_uso: 'BAÑO PRINCIPAL' },
-  { id: 'porc-08', aplicacion: 'MURO', item_code: '6112', codigo: 'IVORY MOSAIC K3525TNM0', medida: '30X30', m2_por_caja: 0.99, espacio_de_uso: 'BAÑO PRINCIPAL' },
-  { id: 'porc-09', aplicacion: 'MURO', item_code: '6109', codigo: 'K3516TNMO (06109) ash avory', medida: '30x30', m2_por_caja: 0.99, espacio_de_uso: 'BAÑO COMPARTIDO' },
-  { id: 'porc-10', aplicacion: 'PISO', item_code: '6110b', codigo: 'K0633525TA', medida: '60x60', m2_por_caja: 1.44, espacio_de_uso: 'BAÑO VISITAS' },
-]
-
-const DEPARTAMENTOS_ETRUSCO = [
-  'rotura', '1A', '1B', '1C', '1D', '1E', '1F', '1G', '1H', '1J', '1K', '1M', '1N',
-  '2A', '2B', '2C', '2D', '2E', '2F', '2G', '2H', '2J', '2K', '2M', '2N',
-  '3A', '3B', '3C',
-]
-
-function seededRandom(seed: number) {
-  const x = Math.sin(seed) * 10000
-  return x - Math.floor(x)
+function calcM2PorCaja(item: ItemInventario): number {
+  if (item.medida && item.piezas_por_caja) {
+    const match = item.medida.match(/^(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)$/)
+    if (match) {
+      const w = parseFloat(match[1]) / 100
+      const h = parseFloat(match[2]) / 100
+      return parseFloat((w * h * item.piezas_por_caja).toFixed(2))
+    }
+  }
+  if (item.rendimiento) {
+    const num = parseFloat(item.rendimiento)
+    if (!isNaN(num)) return num
+  }
+  return 0
 }
 
-function generateConsumoValues(): Record<string, Record<string, number | null>> {
-  const consumo: Record<string, Record<string, number | null>> = {}
-  let seed = 42
-  DEPARTAMENTOS_ETRUSCO.forEach(dept => {
-    consumo[dept] = {}
-    ITEMS_PORCELANATO.forEach(item => {
-      seed++
-      const r = seededRandom(seed)
-      if (dept === 'rotura') {
-        consumo[dept][item.id] = r > 0.6 ? parseFloat((r * 4).toFixed(2)) : null
-      } else {
-        consumo[dept][item.id] = r > 0.2 ? parseFloat((5 + r * 30).toFixed(2)) : null
-      }
-    })
-  })
-  return consumo
+function toItemConsumo(item: ItemInventario): ItemConsumo {
+  return {
+    id: item.id,
+    aplicacion: item.aplicacion ?? '',
+    item_code: item.item_numero ?? '',
+    codigo: item.codigo,
+    medida: item.medida ?? '',
+    m2_por_caja: calcM2PorCaja(item),
+    espacio_de_uso: item.espacio_de_uso ?? '',
+  }
 }
-
-const ITEMS_LAMINADO: ItemConsumo[] = [
-  { id: 'lam-01', aplicacion: 'PISO', item_code: '7001', codigo: 'YLM2869', medida: '1212x198', m2_por_caja: 2.40, espacio_de_uso: 'DORMITORIO PRINCIPAL' },
-  { id: 'lam-02', aplicacion: 'PISO', item_code: '7002', codigo: 'YLM2870', medida: '1212x198', m2_por_caja: 2.40, espacio_de_uso: 'DORMITORIO SECUNDARIO' },
-  { id: 'lam-03', aplicacion: 'PISO', item_code: '7003', codigo: 'YLM2871', medida: '1212x198', m2_por_caja: 2.40, espacio_de_uso: 'SALA - COMEDOR' },
-]
-
-const DEPARTAMENTOS_LOMAS = ['rotura', '1A', '1B', '1C', '1D', '2A', '2B', '2C', '2D', '3A', '3B']
-
-function generateConsumoLaminado(): Record<string, Record<string, number | null>> {
-  const consumo: Record<string, Record<string, number | null>> = {}
-  let seed = 100
-  DEPARTAMENTOS_LOMAS.forEach(dept => {
-    consumo[dept] = {}
-    ITEMS_LAMINADO.forEach(item => {
-      seed++
-      const r = seededRandom(seed)
-      if (dept === 'rotura') {
-        consumo[dept][item.id] = r > 0.5 ? parseFloat((r * 3).toFixed(2)) : null
-      } else {
-        consumo[dept][item.id] = r > 0.15 ? parseFloat((8 + r * 25).toFixed(2)) : null
-      }
-    })
-  })
-  return consumo
-}
-
-const MOCK_CONSUMOS: ConsumoData[] = [
-  {
-    id: 'consumo-001',
-    material_tipo: 'Porcelanato',
-    obra_id: 'obra-001',
-    obra_nombre: 'Edificio Etrusco',
-    fecha_actualizacion: '2026-01-31',
-    items: ITEMS_PORCELANATO,
-    departamentos: DEPARTAMENTOS_ETRUSCO,
-    consumo: generateConsumoValues(),
-  },
-  {
-    id: 'consumo-002',
-    material_tipo: 'Porcelanato',
-    obra_id: 'obra-002',
-    obra_nombre: 'Complejo Residencial Las Lomas',
-    fecha_actualizacion: '2026-02-15',
-    items: ITEMS_PORCELANATO.slice(0, 6),
-    departamentos: ['rotura', '1A', '1B', '1C', '2A', '2B', '2C', '3A'],
-    consumo: (() => {
-      const c: Record<string, Record<string, number | null>> = {}
-      let seed = 200
-      const deptos = ['rotura', '1A', '1B', '1C', '2A', '2B', '2C', '3A']
-      deptos.forEach(d => {
-        c[d] = {}
-        ITEMS_PORCELANATO.slice(0, 6).forEach(it => {
-          seed++
-          const r = seededRandom(seed)
-          c[d][it.id] = r > 0.25 ? parseFloat((5 + r * 28).toFixed(2)) : null
-        })
-      })
-      return c
-    })(),
-  },
-  {
-    id: 'consumo-003',
-    material_tipo: 'Piso Laminado',
-    obra_id: 'obra-002',
-    obra_nombre: 'Complejo Residencial Las Lomas',
-    fecha_actualizacion: '2026-02-20',
-    items: ITEMS_LAMINADO,
-    departamentos: DEPARTAMENTOS_LOMAS,
-    consumo: generateConsumoLaminado(),
-  },
-]
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -233,7 +153,7 @@ function exportToExcel(data: ConsumoData) {
   const groups = groupByFloor(data.departamentos)
 
   lines.push(`${data.obra_nombre}`)
-  lines.push(`CONSUMO DE ${data.material_tipo.toUpperCase()}`)
+  lines.push(`CONSUMO DE ${data.categoria.toUpperCase()}`)
   lines.push(`FECHA DE ACTUALIZACIÓN: ${formatDateShort(data.fecha_actualizacion)}`)
   lines.push('')
 
@@ -283,7 +203,7 @@ function exportToExcel(data: ConsumoData) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `Reporte_Consumo_${data.material_tipo}_${data.obra_nombre.replace(/\s+/g, '_')}_${data.fecha_actualizacion}.csv`
+  a.download = `Reporte_Consumo_${data.categoria}_${data.obra_nombre.replace(/\s+/g, '_')}_${data.fecha_actualizacion}.csv`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -329,7 +249,7 @@ function exportToPDF(data: ConsumoData) {
   const html = `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>Reporte Consumo ${escapeHtml(data.material_tipo)} - ${today}</title>
+<title>Reporte Consumo ${escapeHtml(data.categoria)} - ${today}</title>
 <style>
   @page { size: landscape; margin: 12mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -353,7 +273,7 @@ function exportToPDF(data: ConsumoData) {
 
 ${getHTMLPDFHeader({ title: 'INFORME TÉCNICO', date: formatDatePDF() })}
 
-<div class="subtitle">Reporte Consumo ${escapeHtml(data.material_tipo)}</div>
+<div class="subtitle">Reporte Consumo ${escapeHtml(data.categoria)}</div>
 <div class="subtitle-obra">${escapeHtml(data.obra_nombre)} · Actualización: ${formatDateShort(data.fecha_actualizacion)}</div>
 
 <table class="data-table">
@@ -397,30 +317,167 @@ ${getHTMLPDFFooter()}
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function ReporteConsumoPage() {
-  const [filterMaterial, setFilterMaterial] = useState('todos')
-  const [filterObra, setFilterObra] = useState('todas')
-  const [fromDate, setFromDate] = useState('2026-01-01')
-  const [toDate, setToDate] = useState('2026-03-31')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const { obras } = useObras()
+  const { categorias } = useCategorias()
+  const { items: sectorizaciones } = useSectorizacion()
 
-  const materialesTipos = useMemo(() => {
-    const set = new Set(MOCK_CONSUMOS.map(c => c.material_tipo))
-    return ['todos', ...Array.from(set)]
+  const [selectedObra, setSelectedObra] = useState('')
+  const [selectedCategoria, setSelectedCategoria] = useState('')
+  const [allImportItems, setAllImportItems] = useState<ItemInventario[]>([])
+  const [consumoRecords, setConsumoRecords] = useState<ConsumoRecord[]>([])
+  const [localValues, setLocalValues] = useState<Record<string, Record<string, string>>>({})
+  const [loadingItems, setLoadingItems] = useState(false)
+  const [loadingConsumo, setLoadingConsumo] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const obrasActivas = useMemo(() => obras.filter(o => o.estado === 'activa'), [obras])
+
+  // Fetch items (both importacion types) once
+  useEffect(() => {
+    let cancelled = false
+    setLoadingItems(true)
+    Promise.all([
+      inventarioService.getAll('importacion_nueva'),
+      inventarioService.getAll('importacion_antigua'),
+    ]).then(([resN, resA]) => {
+      if (cancelled) return
+      setAllImportItems([...(resN.data ?? []), ...(resA.data ?? [])])
+      setLoadingItems(false)
+    }).catch(() => { if (!cancelled) setLoadingItems(false) })
+    return () => { cancelled = true }
   }, [])
 
-  const obrasDisponibles = useMemo(() => {
-    const set = new Set(MOCK_CONSUMOS.map(c => c.obra_nombre))
-    return ['todas', ...Array.from(set)]
+  // Fetch consumo records when obra changes
+  useEffect(() => {
+    if (!selectedObra) { setConsumoRecords([]); return }
+    let cancelled = false
+    setLoadingConsumo(true)
+    consumoService.getByObra(selectedObra).then(res => {
+      if (cancelled) return
+      setConsumoRecords(res.data ?? [])
+      setLoadingConsumo(false)
+    }).catch(() => { if (!cancelled) setLoadingConsumo(false) })
+    return () => { cancelled = true }
+  }, [selectedObra])
+
+  // Current sectorizacion for selected obra
+  const currentSect = useMemo(() =>
+    sectorizaciones.find(s => s.obra_id === selectedObra) ?? null,
+    [sectorizaciones, selectedObra]
+  )
+
+  // Build department list from pisos
+  const deptEntries = useMemo(() => {
+    if (!currentSect) return []
+    const result: { label: string; id: string }[] = []
+    result.push({ label: 'rotura', id: 'rotura' })
+    const sortedPisos = [...currentSect.pisos].sort((a, b) => a.numero - b.numero)
+    for (const piso of sortedPisos) {
+      const sortedDeptos = [...piso.departamentos].sort((a, b) => a.letra.localeCompare(b.letra))
+      for (const dept of sortedDeptos) {
+        result.push({ label: `${piso.numero}${dept.letra}`, id: dept.id })
+      }
+    }
+    return result
+  }, [currentSect])
+
+  const deptLabels = useMemo(() => deptEntries.map(d => d.label), [deptEntries])
+  const labelToId = useMemo(() => {
+    const map: Record<string, string> = {}
+    deptEntries.forEach(d => { map[d.label] = d.id })
+    return map
+  }, [deptEntries])
+  const idToLabel = useMemo(() => {
+    const map: Record<string, string> = {}
+    deptEntries.forEach(d => { map[d.id] = d.label })
+    return map
+  }, [deptEntries])
+
+  // Items filtered by selected category
+  const filteredItems = useMemo(() => {
+    if (!selectedCategoria) return []
+    return allImportItems.filter(i => i.categoria_id === selectedCategoria)
+  }, [allImportItems, selectedCategoria])
+
+  const itemsConsumo = useMemo(() => filteredItems.map(toItemConsumo), [filteredItems])
+
+  // Build consumo grid from records + populate local values
+  useEffect(() => {
+    const local: Record<string, Record<string, string>> = {}
+    for (const { label } of deptEntries) {
+      local[label] = {}
+      for (const item of filteredItems) {
+        const deptId = labelToId[label]
+        if (deptId === 'rotura') {
+          local[label][item.id] = ''
+          continue
+        }
+        const record = consumoRecords.find(r => r.item_id === item.id && r.departamento_id === deptId)
+        local[label][item.id] = record ? String(record.cantidad) : ''
+      }
+    }
+    setLocalValues(local)
+    setDirty(false)
+  }, [consumoRecords, deptEntries, filteredItems, labelToId])
+
+  // Build ConsumoData for export/stats
+  const consumoData: ConsumoData | null = useMemo(() => {
+    if (!selectedObra || !selectedCategoria || itemsConsumo.length === 0 || deptLabels.length <= 1) return null
+    const obraName = obrasActivas.find(o => o.id === selectedObra)?.nombre ?? ''
+    const catName = categorias.find(c => c.id === selectedCategoria)?.nombre ?? ''
+    const consumo: Record<string, Record<string, number | null>> = {}
+    for (const label of deptLabels) {
+      consumo[label] = {}
+      for (const item of itemsConsumo) {
+        const val = parseFloat(localValues[label]?.[item.id] ?? '')
+        consumo[label][item.id] = isNaN(val) ? null : val
+      }
+    }
+    return {
+      id: `${selectedObra}-${selectedCategoria}`,
+      categoria: catName,
+      obra_id: selectedObra,
+      obra_nombre: obraName,
+      fecha_actualizacion: new Date().toISOString().slice(0, 10),
+      items: itemsConsumo,
+      departamentos: deptLabels,
+      consumo,
+    }
+  }, [selectedObra, selectedCategoria, itemsConsumo, deptLabels, localValues, obrasActivas, categorias])
+
+  const handleCellChange = useCallback((deptLabel: string, itemId: string, value: string) => {
+    setLocalValues(prev => ({
+      ...prev,
+      [deptLabel]: { ...prev[deptLabel], [itemId]: value },
+    }))
+    setDirty(true)
   }, [])
 
-  const filteredData = useMemo(() => {
-    return MOCK_CONSUMOS.filter(c => {
-      const matchMat = filterMaterial === 'todos' || c.material_tipo === filterMaterial
-      const matchObra = filterObra === 'todas' || c.obra_nombre === filterObra
-      const cDate = new Date(c.fecha_actualizacion)
-      return matchMat && matchObra && new Date(fromDate) <= cDate && cDate <= new Date(toDate)
+  const handleSave = useCallback(async () => {
+    if (!selectedObra || !dirty) return
+    setSaving(true)
+    const valores: { itemId: string; departamentoId: string; cantidad: number }[] = []
+    Object.entries(localValues).forEach(([deptLabel, items]) => {
+      const deptId = labelToId[deptLabel]
+      if (!deptId || deptId === 'rotura') return
+      Object.entries(items).forEach(([itemId, val]) => {
+        const num = parseFloat(val)
+        if (!isNaN(num) && num >= 0) {
+          valores.push({ itemId, departamentoId: deptId, cantidad: num })
+        }
+      })
     })
-  }, [filterMaterial, filterObra, fromDate, toDate])
+    try {
+      await consumoService.save({ obraId: selectedObra, valores })
+      setDirty(false)
+    } catch { /* ignore */ }
+    setSaving(false)
+  }, [selectedObra, dirty, localValues, labelToId])
+
+  const isLoading = loadingItems || loadingConsumo
+  const hasData = consumoData !== null && consumoData.items.length > 0
 
   return (
     <AppShell>
@@ -429,7 +486,7 @@ export default function ReporteConsumoPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Reporte de Consumo</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Análisis de consumo de materiales de importación por departamento, obra y material
+            Consumo de materiales de importación por departamento, obra y categoría
           </p>
         </div>
 
@@ -439,335 +496,310 @@ export default function ReporteConsumoPage() {
             <Search className="w-4 h-4 text-accent" />
             Filtros
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-xs text-muted-foreground font-mono mb-1.5 uppercase">Material</label>
-              <div className="relative">
-                <select
-                  value={filterMaterial}
-                  onChange={(e) => { setFilterMaterial(e.target.value); setSelectedId(null) }}
-                  className="w-full px-3 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent appearance-none pr-8"
-                >
-                  {materialesTipos.map(m => (
-                    <option key={m} value={m}>{m === 'todos' ? 'Todos los materiales' : m}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-              </div>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-muted-foreground font-mono mb-1.5 uppercase">Obra</label>
               <div className="relative">
                 <select
-                  value={filterObra}
-                  onChange={(e) => { setFilterObra(e.target.value); setSelectedId(null) }}
+                  value={selectedObra}
+                  onChange={(e) => { setSelectedObra(e.target.value); setDirty(false) }}
                   className="w-full px-3 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent appearance-none pr-8"
                 >
-                  {obrasDisponibles.map(o => (
-                    <option key={o} value={o}>{o === 'todas' ? 'Todas las obras' : o}</option>
+                  <option value="">Seleccionar obra</option>
+                  {obrasActivas.map(o => (
+                    <option key={o.id} value={o.id}>{o.nombre}</option>
                   ))}
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
               </div>
             </div>
             <div>
-              <label className="block text-xs text-muted-foreground font-mono mb-1.5 uppercase">Desde</label>
+              <label className="block text-xs text-muted-foreground font-mono mb-1.5 uppercase">Categoría</label>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs text-muted-foreground font-mono mb-1.5 uppercase">Hasta</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent" />
+                <select
+                  value={selectedCategoria}
+                  onChange={(e) => { setSelectedCategoria(e.target.value); setDirty(false) }}
+                  className="w-full px-3 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent appearance-none pr-8"
+                >
+                  <option value="">Seleccionar categoría</option>
+                  {categorias.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <BarChart3 className="w-3.5 h-3.5 text-accent" />
-              <p className="text-xs text-muted-foreground font-mono uppercase">Reportes</p>
-            </div>
-            <p className="text-2xl sm:text-3xl font-bold text-foreground">{filteredData.length}</p>
+        {/* Loading */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span>Cargando datos...</span>
           </div>
-          <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <Package className="w-3.5 h-3.5 text-accent" />
-              <p className="text-xs text-muted-foreground font-mono uppercase">Materiales</p>
-            </div>
-            <p className="text-2xl sm:text-3xl font-bold text-accent">{new Set(filteredData.map(d => d.material_tipo)).size}</p>
-          </div>
-          <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <Building2 className="w-3.5 h-3.5 text-accent" />
-              <p className="text-xs text-muted-foreground font-mono uppercase">Obras</p>
-            </div>
-            <p className="text-2xl sm:text-3xl font-bold text-foreground">{new Set(filteredData.map(d => d.obra_nombre)).size}</p>
-          </div>
-          <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <Layers className="w-3.5 h-3.5 text-accent" />
-              <p className="text-xs text-muted-foreground font-mono uppercase">Total M²</p>
-            </div>
-            <p className="text-2xl sm:text-3xl font-bold text-accent">{filteredData.reduce((s, d) => s + getTotalM2(d), 0).toFixed(0)}</p>
-          </div>
-        </div>
+        )}
 
-        {/* Report Cards */}
-        {filteredData.length === 0 ? (
+        {/* No selection */}
+        {!isLoading && (!selectedObra || !selectedCategoria) && (
           <div className="bg-card border border-border rounded-xl p-10 text-center">
             <BarChart3 className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-muted-foreground text-sm">No hay reportes de consumo para los filtros seleccionados</p>
+            <p className="text-muted-foreground text-sm">Selecciona una obra y una categoría para ver el reporte de consumo</p>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {filteredData.map(data => {
-              const isSelected = selectedId === data.id
-              const totalM2 = getTotalM2(data)
-              const floorGroups = groupByFloor(data.departamentos)
-              const floorCount = floorGroups.filter(g => g.piso !== 'rotura').length
+        )}
 
-              return (
-                <div key={data.id} className="bg-card border border-border rounded-xl overflow-hidden">
-                  {/* Summary row */}
-                  <button
-                    onClick={() => setSelectedId(isSelected ? null : data.id)}
-                    className="w-full flex items-center gap-3 p-4 hover:bg-border/10 transition-colors text-left"
-                  >
-                    <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
-                      <Package className="w-5 h-5 text-accent" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-foreground">{data.obra_nombre}</span>
-                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold border bg-accent/10 text-accent border-accent/30">
-                          {data.material_tipo}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {data.items.length} items
-                        <span className="mx-1.5">·</span>
-                        {floorCount} pisos · {data.departamentos.filter(d => d !== 'rotura').length} deptos
-                        <span className="mx-1.5">·</span>
-                        {totalM2.toFixed(2)} M² total
-                        <span className="mx-1.5">·</span>
-                        Act: {formatDateLong(data.fecha_actualizacion)}
-                      </p>
-                    </div>
-                    <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform flex-shrink-0 ${isSelected ? 'rotate-180' : ''}`} />
-                  </button>
+        {/* No items found */}
+        {!isLoading && selectedObra && selectedCategoria && !hasData && (
+          <div className="bg-card border border-border rounded-xl p-10 text-center">
+            <Package className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-muted-foreground text-sm">No se encontraron ítems de importación para la categoría seleccionada</p>
+            {!currentSect && (
+              <p className="text-muted-foreground text-xs mt-2">Esta obra no tiene sectorización configurada</p>
+            )}
+          </div>
+        )}
 
-                  {/* Detail Table */}
-                  {isSelected && (
-                    <div className="border-t border-border">
-                      {/* Export bar */}
-                      <div className="flex items-center justify-between px-4 py-2.5 bg-border/5 border-b border-border">
-                        <div className="text-xs text-muted-foreground">
-                          <span className="font-bold text-foreground">{data.obra_nombre}</span>
-                          <span className="mx-1.5">—</span>
-                          Consumo de {data.material_tipo}
-                          <span className="mx-1.5">—</span>
-                          Actualización: {formatDateShort(data.fecha_actualizacion)}
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => exportToExcel(data)}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-green-700 text-white rounded-lg text-xs font-medium hover:bg-green-800 transition-colors">
-                            <FileSpreadsheet className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Excel</span>
-                          </button>
-                          <button onClick={() => exportToPDF(data)}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-red-700 text-white rounded-lg text-xs font-medium hover:bg-red-800 transition-colors">
-                            <FileText className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">PDF</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Spreadsheet-style table */}
-                      <div className="overflow-x-auto">
-                        <table className="w-full border-collapse" style={{ minWidth: `${90 + data.items.length * 95}px` }}>
-                          {/* META HEADER — Aplicación / ITEM / Código / Medida / m2 / Espacio */}
-                          <thead>
-                            {/* Aplicación */}
-                            <tr>
-                              <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-2 text-left border border-[#2d5a3d] min-w-[90px]">
-                                Aplicación
-                              </th>
-                              {data.items.map(item => (
-                                <th key={`a-${item.id}`} className="bg-[#1b3a26] text-accent text-[11px] font-bold px-2 py-2 text-center border border-[#2d5a3d] whitespace-nowrap min-w-[90px]">
-                                  {item.aplicacion}
-                                </th>
-                              ))}
-                            </tr>
-                            {/* ITEM */}
-                            <tr>
-                              <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
-                                ITEM
-                              </th>
-                              {data.items.map(item => (
-                                <td key={`i-${item.id}`} className="bg-[#223d2e] text-center text-[11px] font-bold text-white px-2 py-1.5 border border-[#2d5a3d]">
-                                  {item.item_code}
-                                </td>
-                              ))}
-                            </tr>
-                            {/* Código */}
-                            <tr>
-                              <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
-                                Código
-                              </th>
-                              {data.items.map(item => (
-                                <td key={`c-${item.id}`} className="bg-[#1a2e22] text-center font-mono text-[9px] text-gray-300 px-2 py-1.5 border border-[#2d5a3d] whitespace-nowrap">
-                                  {item.codigo}
-                                </td>
-                              ))}
-                            </tr>
-                            {/* Medida */}
-                            <tr>
-                              <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
-                                Medida
-                              </th>
-                              {data.items.map(item => (
-                                <td key={`m-${item.id}`} className="bg-[#223d2e] text-center text-[10px] text-gray-200 px-2 py-1.5 border border-[#2d5a3d]">
-                                  {item.medida}
-                                </td>
-                              ))}
-                            </tr>
-                            {/* m² por caja */}
-                            <tr>
-                              <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
-                                m² por caja
-                              </th>
-                              {data.items.map(item => (
-                                <td key={`m2-${item.id}`} className="bg-[#1a2e22] text-center text-[11px] font-bold text-accent px-2 py-1.5 border border-[#2d5a3d]">
-                                  {item.m2_por_caja}
-                                </td>
-                              ))}
-                            </tr>
-                            {/* Espacio de uso */}
-                            <tr>
-                              <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
-                                Espacio de uso
-                              </th>
-                              {data.items.map(item => (
-                                <td key={`e-${item.id}`} className="bg-[#223d2e] text-center text-[9px] text-gray-300 px-2 py-1.5 border border-[#2d5a3d] whitespace-nowrap uppercase font-medium">
-                                  {item.espacio_de_uso}
-                                </td>
-                              ))}
-                            </tr>
-                            {/* Departamento / M2 unit row */}
-                            <tr>
-                              <th className="sticky left-0 z-20 bg-accent text-white text-[11px] font-bold px-3 py-2 text-left border border-accent/60">
-                                Departamento
-                              </th>
-                              {data.items.map(item => (
-                                <th key={`u-${item.id}`} className="bg-accent text-white text-[11px] font-bold px-2 py-2 text-center border border-accent/60">
-                                  M2
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-
-                          <tbody>
-                            {floorGroups.map((group) => {
-                              const isRotura = group.piso === 'rotura'
-                              const fc = isRotura
-                                ? { bg: 'bg-amber-900/10', border: 'border-amber-700/30', text: 'text-amber-400', badge: 'bg-amber-800', stickyBg: 'bg-amber-950/90' }
-                                : FLOOR_COLORS[group.colorIdx]
-
-                              return (
-                                <Fragment key={group.piso}>
-                                  {/* Floor separator banner */}
-                                  <tr>
-                                    <td
-                                      colSpan={data.items.length + 1}
-                                      className={`${fc.badge} text-white text-[11px] font-bold px-3 py-2 text-left border border-border/30`}
-                                    >
-                                      <div className="flex items-center gap-2">
-                                        <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-white/20 text-[10px] font-black">
-                                          {isRotura ? '⚠' : group.piso}
-                                        </span>
-                                        <span>{group.label}</span>
-                                        {!isRotura && (
-                                          <span className="text-white/60 text-[10px] font-normal ml-1">
-                                            ({group.deptos.length} departamentos)
-                                          </span>
-                                        )}
-                                      </div>
-                                    </td>
-                                  </tr>
-
-                                  {/* Floor data rows */}
-                                  {group.deptos.map((dept, dIdx) => (
-                                    <tr key={dept} className={`${dIdx % 2 === 0 ? fc.bg : 'bg-card'} hover:brightness-125 transition-all`}>
-                                      <td className={`sticky left-0 z-10 px-3 py-[5px] text-left text-[11px] font-bold border border-border/20 ${dIdx % 2 === 0 ? fc.stickyBg : 'bg-card'} ${isRotura ? 'italic text-amber-400' : 'text-foreground'}`}>
-                                        {dept}
-                                      </td>
-                                      {data.items.map(item => {
-                                        const val = data.consumo[dept]?.[item.id]
-                                        const has = val != null
-                                        return (
-                                          <td key={`${dept}-${item.id}`}
-                                            className={`px-2 py-[5px] text-center text-[11px] border border-border/20 font-mono tabular-nums ${has ? 'text-foreground' : 'text-muted-foreground/20'}`}
-                                          >
-                                            {has ? val.toFixed(2) : '-'}
-                                          </td>
-                                        )
-                                      })}
-                                    </tr>
-                                  ))}
-
-                                  {/* Floor subtotal */}
-                                  {group.deptos.length > 1 && (
-                                    <tr className={`${fc.bg} border-t-2 ${fc.border}`}>
-                                      <td className={`sticky left-0 z-10 px-3 py-[6px] text-left text-[11px] font-extrabold border border-border/30 ${fc.stickyBg} ${fc.text}`}>
-                                        Subtotal {group.label}
-                                      </td>
-                                      {data.items.map(item => {
-                                        const t = getFloorTotal(data, group.deptos, item.id)
-                                        return (
-                                          <td key={`sub-${group.piso}-${item.id}`}
-                                            className={`px-2 py-[6px] text-center text-[11px] font-extrabold border border-border/30 font-mono tabular-nums ${fc.text}`}
-                                          >
-                                            {t.toFixed(2)}
-                                          </td>
-                                        )
-                                      })}
-                                    </tr>
-                                  )}
-                                </Fragment>
-                              )
-                            })}
-
-                            {/* Grand total */}
-                            <tr>
-                              <td className="sticky left-0 z-10 bg-[#1b3a26] text-white px-3 py-2.5 text-left text-[12px] font-black border border-[#2d5a3d] tracking-wide">
-                                TOTAL GENERAL
-                              </td>
-                              {data.items.map(item => (
-                                <td key={`tot-${item.id}`}
-                                  className="bg-[#1b3a26] text-accent px-2 py-2.5 text-center text-[12px] font-black border border-[#2d5a3d] font-mono tabular-nums"
-                                >
-                                  {getItemTotal(data, item.id).toFixed(2)}
-                                </td>
-                              ))}
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
+        {/* Data Table */}
+        {!isLoading && hasData && consumoData && (
+          <>
+            {/* Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Package className="w-3.5 h-3.5 text-accent" />
+                  <p className="text-xs text-muted-foreground font-mono uppercase">Ítems</p>
                 </div>
-              )
-            })}
-          </div>
+                <p className="text-2xl sm:text-3xl font-bold text-accent">{consumoData.items.length}</p>
+              </div>
+              <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Layers className="w-3.5 h-3.5 text-accent" />
+                  <p className="text-xs text-muted-foreground font-mono uppercase">Pisos</p>
+                </div>
+                <p className="text-2xl sm:text-3xl font-bold text-foreground">{groupByFloor(consumoData.departamentos).filter(g => g.piso !== 'rotura').length}</p>
+              </div>
+              <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Building2 className="w-3.5 h-3.5 text-accent" />
+                  <p className="text-xs text-muted-foreground font-mono uppercase">Deptos</p>
+                </div>
+                <p className="text-2xl sm:text-3xl font-bold text-foreground">{consumoData.departamentos.filter(d => d !== 'rotura').length}</p>
+              </div>
+              <div className="bg-card border border-border rounded-lg p-3 sm:p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <BarChart3 className="w-3.5 h-3.5 text-accent" />
+                  <p className="text-xs text-muted-foreground font-mono uppercase">Total M²</p>
+                </div>
+                <p className="text-2xl sm:text-3xl font-bold text-accent">{getTotalM2(consumoData).toFixed(0)}</p>
+              </div>
+            </div>
+
+            {/* Table Card */}
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              {/* Export/Save bar */}
+              <div className="flex items-center justify-between px-4 py-2.5 bg-border/5 border-b border-border">
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-bold text-foreground">{consumoData.obra_nombre}</span>
+                  <span className="mx-1.5">—</span>
+                  Consumo de {consumoData.categoria}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSave}
+                    disabled={!dirty || saving}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-accent text-white rounded-lg text-xs font-medium hover:bg-accent/90 transition-colors disabled:opacity-40"
+                  >
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    <span className="hidden sm:inline">Guardar</span>
+                  </button>
+                  <button onClick={() => exportToExcel(consumoData)}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-green-700 text-white rounded-lg text-xs font-medium hover:bg-green-800 transition-colors">
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Excel</span>
+                  </button>
+                  <button onClick={() => exportToPDF(consumoData)}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-red-700 text-white rounded-lg text-xs font-medium hover:bg-red-800 transition-colors">
+                    <FileText className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">PDF</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Spreadsheet-style table */}
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse" style={{ minWidth: `${90 + consumoData.items.length * 95}px` }}>
+                  {/* META HEADER */}
+                  <thead>
+                    {/* Aplicación */}
+                    <tr>
+                      <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-2 text-left border border-[#2d5a3d] min-w-[90px]">
+                        Aplicación
+                      </th>
+                      {consumoData.items.map(item => (
+                        <th key={`a-${item.id}`} className="bg-[#1b3a26] text-accent text-[11px] font-bold px-2 py-2 text-center border border-[#2d5a3d] whitespace-nowrap min-w-[90px]">
+                          {item.aplicacion || '—'}
+                        </th>
+                      ))}
+                    </tr>
+                    {/* ITEM */}
+                    <tr>
+                      <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
+                        ITEM
+                      </th>
+                      {consumoData.items.map(item => (
+                        <td key={`i-${item.id}`} className="bg-[#223d2e] text-center text-[11px] font-bold text-white px-2 py-1.5 border border-[#2d5a3d]">
+                          {item.item_code || '—'}
+                        </td>
+                      ))}
+                    </tr>
+                    {/* Código */}
+                    <tr>
+                      <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
+                        Código
+                      </th>
+                      {consumoData.items.map(item => (
+                        <td key={`c-${item.id}`} className="bg-[#1a2e22] text-center font-mono text-[9px] text-gray-300 px-2 py-1.5 border border-[#2d5a3d] whitespace-nowrap">
+                          {item.codigo}
+                        </td>
+                      ))}
+                    </tr>
+                    {/* Medida */}
+                    <tr>
+                      <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
+                        Medida
+                      </th>
+                      {consumoData.items.map(item => (
+                        <td key={`m-${item.id}`} className="bg-[#223d2e] text-center text-[10px] text-gray-200 px-2 py-1.5 border border-[#2d5a3d]">
+                          {item.medida || '—'}
+                        </td>
+                      ))}
+                    </tr>
+                    {/* m² por caja */}
+                    <tr>
+                      <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
+                        m² por caja
+                      </th>
+                      {consumoData.items.map(item => (
+                        <td key={`m2-${item.id}`} className="bg-[#1a2e22] text-center text-[11px] font-bold text-accent px-2 py-1.5 border border-[#2d5a3d]">
+                          {item.m2_por_caja || '—'}
+                        </td>
+                      ))}
+                    </tr>
+                    {/* Espacio de uso */}
+                    <tr>
+                      <th className="sticky left-0 z-20 bg-[#1b3a26] text-white text-[11px] font-bold px-3 py-1.5 text-left border border-[#2d5a3d]">
+                        Espacio de uso
+                      </th>
+                      {consumoData.items.map(item => (
+                        <td key={`e-${item.id}`} className="bg-[#223d2e] text-center text-[9px] text-gray-300 px-2 py-1.5 border border-[#2d5a3d] whitespace-nowrap uppercase font-medium">
+                          {item.espacio_de_uso || '—'}
+                        </td>
+                      ))}
+                    </tr>
+                    {/* Departamento / M2 unit row */}
+                    <tr>
+                      <th className="sticky left-0 z-20 bg-accent text-white text-[11px] font-bold px-3 py-2 text-left border border-accent/60">
+                        Departamento
+                      </th>
+                      {consumoData.items.map(item => (
+                        <th key={`u-${item.id}`} className="bg-accent text-white text-[11px] font-bold px-2 py-2 text-center border border-accent/60">
+                          M2
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {groupByFloor(consumoData.departamentos).map((group) => {
+                      const isRotura = group.piso === 'rotura'
+                      const fc = isRotura
+                        ? { bg: 'bg-amber-900/10', border: 'border-amber-700/30', text: 'text-amber-400', badge: 'bg-amber-800', stickyBg: 'bg-amber-950/90' }
+                        : FLOOR_COLORS[group.colorIdx]
+
+                      return (
+                        <Fragment key={group.piso}>
+                          {/* Floor separator banner */}
+                          <tr>
+                            <td
+                              colSpan={consumoData.items.length + 1}
+                              className={`${fc.badge} text-white text-[11px] font-bold px-3 py-2 text-left border border-border/30`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-white/20 text-[10px] font-black">
+                                  {isRotura ? '⚠' : group.piso}
+                                </span>
+                                <span>{group.label}</span>
+                                {!isRotura && (
+                                  <span className="text-white/60 text-[10px] font-normal ml-1">
+                                    ({group.deptos.length} departamentos)
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* Floor data rows */}
+                          {group.deptos.map((dept, dIdx) => (
+                            <tr key={dept} className={`${dIdx % 2 === 0 ? fc.bg : 'bg-card'} hover:brightness-125 transition-all`}>
+                              <td className={`sticky left-0 z-10 px-3 py-[5px] text-left text-[11px] font-bold border border-border/20 ${dIdx % 2 === 0 ? fc.stickyBg : 'bg-card'} ${isRotura ? 'italic text-amber-400' : 'text-foreground'}`}>
+                                {dept}
+                              </td>
+                              {consumoData.items.map(item => (
+                                <td key={`${dept}-${item.id}`} className="px-0.5 py-0.5 border border-border/20">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={localValues[dept]?.[item.id] ?? ''}
+                                    onChange={(e) => handleCellChange(dept, item.id, e.target.value)}
+                                    className="w-full px-1.5 py-[3px] bg-transparent text-center text-[11px] font-mono tabular-nums text-foreground focus:outline-none focus:bg-accent/10 focus:ring-1 focus:ring-accent rounded [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                    placeholder="-"
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+
+                          {/* Floor subtotal */}
+                          {group.deptos.length > 1 && (
+                            <tr className={`${fc.bg} border-t-2 ${fc.border}`}>
+                              <td className={`sticky left-0 z-10 px-3 py-[6px] text-left text-[11px] font-extrabold border border-border/30 ${fc.stickyBg} ${fc.text}`}>
+                                Subtotal {group.label}
+                              </td>
+                              {consumoData.items.map(item => {
+                                const t = getFloorTotal(consumoData, group.deptos, item.id)
+                                return (
+                                  <td key={`sub-${group.piso}-${item.id}`}
+                                    className={`px-2 py-[6px] text-center text-[11px] font-extrabold border border-border/30 font-mono tabular-nums ${fc.text}`}
+                                  >
+                                    {t.toFixed(2)}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+
+                    {/* Grand total */}
+                    <tr>
+                      <td className="sticky left-0 z-10 bg-[#1b3a26] text-white px-3 py-2.5 text-left text-[12px] font-black border border-[#2d5a3d] tracking-wide">
+                        TOTAL GENERAL
+                      </td>
+                      {consumoData.items.map(item => (
+                        <td key={`tot-${item.id}`}
+                          className="bg-[#1b3a26] text-accent px-2 py-2.5 text-center text-[12px] font-black border border-[#2d5a3d] font-mono tabular-nums"
+                        >
+                          {getItemTotal(consumoData, item.id).toFixed(2)}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </AppShell>

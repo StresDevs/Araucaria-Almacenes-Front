@@ -60,6 +60,7 @@ export default function ImportacionAntiguaPage() {
       if (term) {
         const matchesSearch =
           item.codigo.toLowerCase().includes(term) ||
+          item.codigo_inventario.toLowerCase().includes(term) ||
           (item.descripcion ?? '').toLowerCase().includes(term)
         if (!matchesSearch) return false
       }
@@ -186,6 +187,7 @@ export default function ImportacionAntiguaPage() {
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
                     <th className="px-3 py-3 text-left font-semibold text-foreground hidden sm:table-cell">n°</th>
+                    <th className="px-3 py-3 text-left font-semibold text-foreground">Cód. Inv.</th>
                     <th className="px-3 py-3 text-left font-semibold text-foreground">Ítem</th>
                     <th className="px-3 py-3 text-left font-semibold text-foreground">Descripción</th>
                     <th className="px-3 py-3 text-left font-semibold text-foreground hidden md:table-cell">Categoría</th>
@@ -200,6 +202,7 @@ export default function ImportacionAntiguaPage() {
                     <React.Fragment key={item.id}>
                       <tr className="border-b border-border hover:bg-muted/30 transition-colors">
                         <td className="px-3 py-3 text-foreground hidden sm:table-cell">{idx + 1}</td>
+                        <td className="px-3 py-3 font-mono text-xs text-accent font-semibold whitespace-nowrap">{item.codigo_inventario}</td>
                         <td className="px-3 py-3">
                           <div className="flex items-center gap-2.5">
                             <img
@@ -258,7 +261,7 @@ export default function ImportacionAntiguaPage() {
                       </tr>
                       {expandedRows.has(item.id) && (
                         <tr className="bg-muted/20 border-b border-border">
-                          <td colSpan={8} className="px-3 py-3">
+                          <td colSpan={9} className="px-3 py-3">
                             <div className="space-y-2">
                               <p className="font-semibold text-foreground text-sm mb-2">Ubicación en almacenes:</p>
                               {item.ubicaciones.length === 0 ? (
@@ -281,7 +284,7 @@ export default function ImportacionAntiguaPage() {
                   ))}
                   {itemsFiltrados.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">No se encontraron ítems.</td>
+                      <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">No se encontraron ítems.</td>
                     </tr>
                   )}
                 </tbody>

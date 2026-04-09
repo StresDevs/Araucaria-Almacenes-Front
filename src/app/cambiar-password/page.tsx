@@ -138,12 +138,12 @@ export default function CambiarPasswordPage() {
             <div className="mb-5 p-3 rounded-xl bg-accent/5 border border-accent/15 text-sm flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
                 <span className="text-accent font-bold text-xs">
-                  {user.email?.charAt(0).toUpperCase()}
+                  {(user.email || user.username || 'U').charAt(0).toUpperCase()}
                 </span>
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Usuario</p>
-                <p className="font-medium text-foreground text-sm truncate">{user.email}</p>
+                <p className="font-medium text-foreground text-sm truncate">{user.email || user.username}</p>
               </div>
             </div>
           )}

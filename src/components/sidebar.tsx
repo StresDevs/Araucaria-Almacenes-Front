@@ -2,10 +2,18 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
-import { X, BarChart3, Hammer, Warehouse, Package, FileText, LogOut, ChevronDown, ArrowLeftRight, Trash2, Grid3x3, Users, ShieldCheck } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { X, BarChart3, Hammer, Warehouse, Package, FileText, LogOut, ChevronDown, ArrowLeftRight, Trash2, Grid3x3, Users, ShieldCheck, User, Settings, AlertTriangle } from 'lucide-react'
 import Image from 'next/image'
 import { useAuth } from '@/providers/auth-provider'
+import { usersService } from '@/services'
+import type { UserRole } from '@/types'
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  administrador: 'Administrador',
+  supervisor_almacen: 'Supervisor',
+  lectura: 'Solo Lectura',
+}
 
 interface SidebarProps {
   isOpen: boolean
@@ -14,10 +22,81 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname()
-  const { user: currentUser, logout } = useAuth()
+  const { user: currentUser, logout, updateUser } = useAuth()
   const [inventarioOpen, setInventarioOpen] = useState(false)
   const [transferenciaOpen, setTransferenciaOpen] = useState(false)
   const [reportesOpen, setReportesOpen] = useState(false)
+
+  // Popover / profile / logout
+  const [showPopover, setShowPopover] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
+  const [showEditCredentials, setShowEditCredentials] = useState(false)
+  const [credForm, setCredForm] = useState({ email: '', username: '' })
+  const [credError, setCredError] = useState('')
+  const [credSaving, setCredSaving] = useState(false)
+  const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null)
+  const [checkingUsername, setCheckingUsername] = useState(false)
+  const usernameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Close popover on outside click — uses data attribute + closest()
+  // instead of a ref, because sidebarContent renders in both desktop and
+  // mobile <aside> elements and a single ref would point to only one.
+  useEffect(() => {
+    if (!showPopover) return
+    function handleClick(e: MouseEvent) {
+      if (!(e.target as HTMLElement).closest?.('[data-popover-area]')) {
+        setShowPopover(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showPopover])
+
+  // Debounced username availability check
+  const checkUsername = useCallback((value: string) => {
+    if (usernameTimerRef.current) clearTimeout(usernameTimerRef.current)
+    if (!value || value.length < 2) {
+      setUsernameAvailable(null)
+      return
+    }
+    setCheckingUsername(true)
+    usernameTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await usersService.checkUsername(value)
+        setUsernameAvailable(res.data.available)
+      } catch { setUsernameAvailable(null) }
+      finally { setCheckingUsername(false) }
+    }, 400)
+  }, [])
+
+  const handleOpenEditCredentials = () => {
+    setCredForm({
+      email: currentUser?.email || '',
+      username: currentUser?.username || '',
+    })
+    setCredError('')
+    setUsernameAvailable(null)
+    setShowEditCredentials(true)
+  }
+
+  const handleSaveCredentials = async () => {
+    setCredError('')
+    setCredSaving(true)
+    try {
+      const payload: { email?: string; username?: string } = {}
+      if (credForm.email && credForm.email !== (currentUser?.email || '')) payload.email = credForm.email
+      if (credForm.username && credForm.username !== (currentUser?.username || '')) payload.username = credForm.username
+      if (!payload.email && !payload.username) { setShowEditCredentials(false); return }
+      const res = await usersService.updateMyCredentials(payload)
+      updateUser({ ...currentUser!, email: res.data.email, username: res.data.username, usernameEditado: res.data.usernameEditado })
+      setShowEditCredentials(false)
+    } catch (err: any) {
+      setCredError(err?.message || 'Error al actualizar')
+    } finally { setCredSaving(false) }
+  }
+
+  const canEditUsername = !currentUser?.usernameEditado
 
   const navigation = [
     { name: 'Panel de Control', href: '/', icon: BarChart3 },
@@ -43,6 +122,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     { name: 'Importación Nueva', href: '/inventario/importacion-nueva' },
     { name: 'Importación Antigua', href: '/inventario/importacion-antigua' },
     { name: 'Compras Nacionales', href: '/inventario/compras-nacionales' },
+    { name: 'Categorías', href: '/categorias' },
   ]
 
   const transferenciaSubmenu = [
@@ -234,26 +314,49 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
       </nav>
 
-      {/* User Info + Logout */}
-      <div className="p-3 border-t border-border space-y-2">
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-border/30">
+      {/* User Info + Profile Popover */}
+      <div className="p-3 border-t border-border relative" data-popover-area>
+        <button
+          onClick={() => setShowPopover(!showPopover)}
+          className="flex items-center gap-3 px-3 py-2 rounded-lg bg-border/30 hover:bg-border/50 transition-colors w-full text-left"
+        >
           <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
             <span className="text-xs font-bold text-accent">
               {currentUser?.nombre?.split(' ').slice(0, 2).map(n => n[0]).join('') || 'U'}
             </span>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground truncate">{currentUser?.nombre || 'Usuario'}</p>
-            <p className="text-xs text-muted-foreground truncate">{currentUser?.email || 'Sesión activa'}</p>
+            <p className="text-sm font-medium text-foreground truncate">
+              {currentUser?.nombres
+                ? `${currentUser.nombres} ${currentUser.primerApellido}`
+                : currentUser?.nombre || 'Usuario'}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">
+              {currentUser ? ROLE_LABELS[currentUser.rol] : 'Sesión activa'}
+            </p>
           </div>
-        </div>
-        <button
-          onClick={() => { logout(); onClose() }}
-          className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-red-500/10 transition-colors"
-        >
-          <LogOut className="w-4 h-4 flex-shrink-0" />
-          <span>Cerrar Sesión</span>
         </button>
+
+        {/* Popover */}
+        {showPopover && (
+          <div className="absolute bottom-full left-3 right-3 mb-1 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+            <button
+              onClick={() => { setShowPopover(false); setShowProfile(true) }}
+              className="flex items-center gap-3 px-4 py-3 w-full text-left text-sm text-foreground hover:bg-border/50 transition-colors"
+            >
+              <User className="w-4 h-4 text-muted-foreground" />
+              Perfil
+            </button>
+            <div className="border-t border-border" />
+            <button
+              onClick={() => { setShowPopover(false); setShowLogoutConfirm(true) }}
+              className="flex items-center gap-3 px-4 py-3 w-full text-left text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              Cerrar Sesión
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -282,6 +385,160 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       >
         {sidebarContent}
       </aside>
+
+      {/* ── Modal: Confirmar cierre de sesión ──── */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 bg-background/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-sm p-6 text-center space-y-4">
+            <div className="mx-auto w-12 h-12 rounded-full bg-red-500/15 flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6 text-red-500" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-foreground">¿Cerrar sesión?</h3>
+              <p className="text-sm text-muted-foreground mt-1">¿Estás seguro de que quieres cerrar sesión?</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-border/60 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => { logout(); onClose() }}
+                className="flex-1 px-4 py-2 rounded-lg bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-colors"
+              >
+                Cerrar Sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Perfil de usuario ──── */}
+      {showProfile && (
+        <div className="fixed inset-0 bg-background/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <h2 className="text-lg font-bold text-foreground">Mi Perfil</h2>
+              <button onClick={() => { setShowProfile(false); setShowEditCredentials(false) }} className="p-1.5 rounded-lg hover:bg-border transition-colors">
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+            <div className="p-5 space-y-5">
+              {/* Name + Role */}
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
+                  <span className="text-base font-bold text-accent">
+                    {currentUser?.nombre?.split(' ').slice(0, 2).map(n => n[0]).join('') || 'U'}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-base font-semibold text-foreground">{currentUser?.nombre}</p>
+                  <span className="text-xs text-muted-foreground">{currentUser ? ROLE_LABELS[currentUser.rol] : ''}</span>
+                </div>
+              </div>
+
+              {/* Credentials section */}
+              <div className="space-y-3 bg-muted/30 rounded-xl p-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Correo electrónico</p>
+                  <p className="text-sm font-medium text-foreground">{currentUser?.email || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Nombre de usuario</p>
+                  <p className="text-sm font-medium text-foreground">{currentUser?.username || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Contraseña</p>
+                  <p className="text-sm font-medium text-foreground tracking-widest">••••••••</p>
+                </div>
+
+                {!showEditCredentials ? (
+                  <button
+                    onClick={handleOpenEditCredentials}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-border/60 transition-colors w-full justify-center"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    Editar credenciales
+                  </button>
+                ) : (
+                  <div className="space-y-3 pt-2 border-t border-border">
+                    {credError && (
+                      <div className="p-2 rounded-lg bg-destructive/10 border border-destructive/30 text-xs text-destructive">{credError}</div>
+                    )}
+
+                    {/* Email field */}
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Correo electrónico</label>
+                      <input
+                        type="email"
+                        value={credForm.email}
+                        onChange={(e) => setCredForm({ ...credForm, email: e.target.value })}
+                        placeholder="email@ejemplo.com"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+
+                    {/* Username field */}
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Nombre de usuario</label>
+                      {canEditUsername ? (
+                        <>
+                          {!currentUser?.username && (
+                            <div className="flex items-center gap-1.5 mb-1.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                              <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                              <p className="text-xs text-amber-500">Solo tienes 1 intento para registrar tu nombre de usuario. Después no podrás editarlo.</p>
+                            </div>
+                          )}
+                          <input
+                            type="text"
+                            value={credForm.username}
+                            onChange={(e) => {
+                              const v = e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, '')
+                              setCredForm({ ...credForm, username: v })
+                              checkUsername(v)
+                            }}
+                            placeholder="nombre.usuario"
+                            className={`w-full px-3 py-2 rounded-lg border text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring ${
+                              usernameAvailable === false ? 'border-red-500' : usernameAvailable === true ? 'border-green-500' : 'border-border'
+                            }`}
+                          />
+                          {usernameAvailable === false && (
+                            <p className="text-xs text-red-500 mt-1">Nombre de usuario no disponible, intente con otro diferente</p>
+                          )}
+                          {usernameAvailable === true && credForm.username.length >= 2 && (
+                            <p className="text-xs text-green-500 mt-1">Nombre de usuario disponible</p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">{currentUser?.username} <span className="text-xs">(no editable)</span></p>
+                      )}
+                    </div>
+
+                    {/* Password — read-only */}
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Contraseña</label>
+                      <p className="text-xs text-muted-foreground italic">Solicita al administrador que actualice tu contraseña.</p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button onClick={() => setShowEditCredentials(false)} className="flex-1 px-3 py-2 rounded-lg border border-border text-sm hover:bg-border/60 transition-colors">Cancelar</button>
+                      <button
+                        onClick={handleSaveCredentials}
+                        disabled={credSaving || usernameAvailable === false}
+                        className="flex-1 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+                      >
+                        {credSaving ? 'Guardando...' : 'Guardar'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

@@ -11,6 +11,10 @@ export interface CreateItemDto {
   descripcion?: string
   unidad: string
   rendimiento?: string
+  aplicacion?: string
+  medida?: string
+  piezasPorCaja?: number
+  espacioDeUso?: string
   proveedorId?: string
   precioUnitarioBob?: number
   precioUnitarioUsd?: number
@@ -27,6 +31,10 @@ export interface UpdateItemDto {
   descripcion?: string
   unidad?: string
   rendimiento?: string
+  aplicacion?: string
+  medida?: string
+  piezasPorCaja?: number
+  espacioDeUso?: string
   proveedorId?: string
   precioUnitarioBob?: number
   precioUnitarioUsd?: number

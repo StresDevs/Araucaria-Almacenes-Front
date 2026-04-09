@@ -7,9 +7,13 @@ export type UserRole = 'administrador' | 'supervisor_almacen' | 'lectura'
 export interface AuthUser {
   id: string
   nombre: string
-  email: string
+  nombres: string
+  primerApellido: string
+  email: string | null
+  username: string | null
   rol: UserRole
   debeCambiarPassword: boolean
+  usernameEditado: boolean
 }
 
 export interface LoginResponse {
@@ -23,19 +27,30 @@ export interface UserListItem {
   nombres: string
   primerApellido: string
   segundoApellido: string | null
-  email: string
+  email: string | null
+  username: string | null
   telefono: string | null
   rol: UserRole
   activo: boolean
   debeCambiarPassword: boolean
+  usernameEditado: boolean
   createdAt: string
 }
 
 export interface CreateUserResponse {
   id: string
   nombre: string
-  email: string
+  email: string | null
+  username: string | null
   rol: UserRole
+  temporaryPassword: string
+}
+
+export interface ResetPasswordResponse {
+  id: string
+  nombre: string
+  email: string | null
+  username: string | null
   temporaryPassword: string
 }
 
@@ -84,6 +99,7 @@ export interface ItemUbicacion {
 export interface ItemInventario {
   id: string
   tipo_origen: ItemOrigen
+  codigo_inventario: string
   categoria_id: string | null
   categoria_nombre: string | null
   item_numero: string | null
@@ -92,6 +108,10 @@ export interface ItemInventario {
   descripcion: string | null
   unidad: string
   rendimiento: string | null
+  aplicacion: string | null
+  medida: string | null
+  piezas_por_caja: number | null
+  espacio_de_uso: string | null
   proveedor_id: string | null
   proveedor_nombre: string | null
   precio_unitario_bob: number | null

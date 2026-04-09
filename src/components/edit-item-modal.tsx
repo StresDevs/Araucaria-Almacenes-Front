@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Loader2, Save, Camera, ImageIcon, ShieldAlert, Send } from 'lucide-react'
 import type { ItemInventario, CategoriaItem, ProveedorItem, UserRole } from '@/types'
 import type { UpdateItemDto } from '@/services/endpoints/inventario.service'
@@ -36,6 +36,10 @@ export function EditItemModal({ isOpen, onClose, onSave, onUploadFoto, onSubmitF
     descripcion: '',
     unidad: '',
     rendimiento: '',
+    aplicacion: '',
+    medida: '',
+    piezasPorCaja: '',
+    espacioDeUso: '',
     categoriaId: '',
     proveedorId: '',
     precioUnitarioBob: '',
@@ -55,6 +59,10 @@ export function EditItemModal({ isOpen, onClose, onSave, onUploadFoto, onSubmitF
         descripcion: item.descripcion ?? '',
         unidad: item.unidad ?? '',
         rendimiento: item.rendimiento ?? '',
+        aplicacion: item.aplicacion ?? '',
+        medida: item.medida ?? '',
+        piezasPorCaja: item.piezas_por_caja != null ? String(item.piezas_por_caja) : '',
+        espacioDeUso: item.espacio_de_uso ?? '',
         categoriaId: item.categoria_id ?? '',
         proveedorId: item.proveedor_id ?? '',
         precioUnitarioBob: item.precio_unitario_bob != null ? String(item.precio_unitario_bob) : '',
@@ -68,6 +76,19 @@ export function EditItemModal({ isOpen, onClose, onSave, onUploadFoto, onSubmitF
   if (!isOpen || !item) return null
 
   const currentImage = previewUrl || (item.foto_url ? `${API_BASE}/${item.foto_url}` : null)
+  const editCatName = categorias.find((c) => c.id === form.categoriaId)?.nombre ?? ''
+  const isPorcelanato = editCatName.toLowerCase() === 'porcelanato'
+
+  const calculatedRendimiento = (() => {
+    if (!isPorcelanato || !form.medida || !form.piezasPorCaja) return ''
+    const match = form.medida.match(/^(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)$/)
+    if (!match) return ''
+    const w = parseFloat(match[1]) / 100
+    const h = parseFloat(match[2]) / 100
+    const piezas = parseInt(form.piezasPorCaja, 10)
+    if (isNaN(w) || isNaN(h) || isNaN(piezas) || piezas <= 0) return ''
+    return (w * h * piezas).toFixed(2) + ' m²'
+  })()
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -93,7 +114,14 @@ export function EditItemModal({ isOpen, onClose, onSave, onUploadFoto, onSubmitF
     if (form.nombre.trim() !== (item.nombre ?? '')) dto.nombre = form.nombre.trim()
     if (form.descripcion.trim() !== (item.descripcion ?? '')) dto.descripcion = form.descripcion.trim()
     if (form.unidad !== (item.unidad ?? '')) dto.unidad = form.unidad
-    if (form.rendimiento.trim() !== (item.rendimiento ?? '')) dto.rendimiento = form.rendimiento.trim()
+    // Rendimiento: auto-calc for porcelanato, manual otherwise
+    const rendVal = isPorcelanato ? (calculatedRendimiento || '') : form.rendimiento.trim()
+    if (rendVal !== (item.rendimiento ?? '')) dto.rendimiento = rendVal
+    if (form.aplicacion.trim() !== (item.aplicacion ?? '')) dto.aplicacion = form.aplicacion.trim()
+    if (form.medida.trim() !== (item.medida ?? '')) dto.medida = form.medida.trim()
+    const piezas = form.piezasPorCaja ? parseInt(form.piezasPorCaja, 10) : undefined
+    if (piezas !== (item.piezas_por_caja ?? undefined)) dto.piezasPorCaja = piezas
+    if (form.espacioDeUso.trim() !== (item.espacio_de_uso ?? '')) dto.espacioDeUso = form.espacioDeUso.trim()
     if (form.categoriaId !== (item.categoria_id ?? '')) dto.categoriaId = form.categoriaId || undefined
     if (form.proveedorId !== (item.proveedor_id ?? '')) dto.proveedorId = form.proveedorId || undefined
     const bob = form.precioUnitarioBob ? parseFloat(form.precioUnitarioBob) : undefined
@@ -237,14 +265,76 @@ export function EditItemModal({ isOpen, onClose, onSave, onUploadFoto, onSubmitF
             </div>
             <div>
               <label className="block text-xs font-medium text-foreground mb-1">Rendimiento</label>
+              {isPorcelanato ? (
+                <input
+                  type="text"
+                  value={calculatedRendimiento || '—'}
+                  readOnly
+                  className="w-full px-3 py-2 bg-muted/50 border border-border rounded-lg text-sm text-foreground cursor-not-allowed opacity-70"
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={form.rendimiento}
+                  onChange={(e) => handleChange('rendimiento', e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              )}
+              {isPorcelanato && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">Auto-calculado desde medida × piezas</p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">Aplicación</label>
               <input
                 type="text"
-                value={form.rendimiento}
-                onChange={(e) => handleChange('rendimiento', e.target.value)}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                value={form.aplicacion}
+                onChange={(e) => handleChange('aplicacion', e.target.value)}
+                placeholder="Ej. MUROS, PISO"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-foreground mb-1">Espacio de Uso</label>
+              <input
+                type="text"
+                value={form.espacioDeUso}
+                onChange={(e) => handleChange('espacioDeUso', e.target.value)}
+                placeholder="Ej. COCINA"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
           </div>
+
+          {isPorcelanato && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-foreground mb-1">Medida</label>
+                <input
+                  type="text"
+                  value={form.medida}
+                  onChange={(e) => handleChange('medida', e.target.value)}
+                  placeholder="Ej. 60x30"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-foreground mb-1">Piezas por caja</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={form.piezasPorCaja}
+                  onChange={(e) => handleChange('piezasPorCaja', e.target.value)}
+                  placeholder="Ej. 8"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { X, Plus, ScanLine, Loader2, CheckCircle2, AlertCircle, ZoomIn } from 'lucide-react'
 
 // ─── OCR Engine ───────────────────────────────────────────────────────────────
@@ -157,6 +157,10 @@ interface AddItemForm {
   descripcion: string
   und: string
   rendimiento: string
+  aplicacion: string
+  medida: string
+  piezasPorCaja: string
+  espacioDeUso: string
   categoriaId: string
   proveedorId: string
   precioUnitarioBob: string
@@ -173,6 +177,10 @@ const EMPTY_FORM: AddItemForm = {
   descripcion: '',
   und: '',
   rendimiento: '',
+  aplicacion: '',
+  medida: '',
+  piezasPorCaja: '',
+  espacioDeUso: '',
   categoriaId: '',
   proveedorId: '',
   precioUnitarioBob: '',
@@ -283,6 +291,19 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
     : categorias
 
   const selectedCatName = categorias.find((c) => c.id === form.categoriaId)?.nombre ?? ''
+  const isPorcelanato = selectedCatName.toLowerCase() === 'porcelanato'
+
+  // Auto-calculate rendimiento (m2 por caja) when medida and piezas change
+  const calculatedRendimiento = useMemo(() => {
+    if (!isPorcelanato || !form.medida || !form.piezasPorCaja) return ''
+    const match = form.medida.match(/^(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)$/)
+    if (!match) return ''
+    const w = parseFloat(match[1]) / 100
+    const h = parseFloat(match[2]) / 100
+    const piezas = parseInt(form.piezasPorCaja, 10)
+    if (isNaN(w) || isNaN(h) || isNaN(piezas) || piezas <= 0) return ''
+    return (w * h * piezas).toFixed(2) + ' m²'
+  }, [isPorcelanato, form.medida, form.piezasPorCaja])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -381,7 +402,11 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
       unidad: form.und,
       ...(form.nombre && { nombre: form.nombre }),
       ...(form.descripcion && { descripcion: form.descripcion }),
-      ...(form.rendimiento && { rendimiento: form.rendimiento }),
+      ...((isPorcelanato && calculatedRendimiento) ? { rendimiento: calculatedRendimiento } : form.rendimiento ? { rendimiento: form.rendimiento } : {}),
+      ...(form.aplicacion && { aplicacion: form.aplicacion }),
+      ...(isPorcelanato && form.medida && { medida: form.medida }),
+      ...(isPorcelanato && form.piezasPorCaja && { piezasPorCaja: parseInt(form.piezasPorCaja, 10) }),
+      ...(form.espacioDeUso && { espacioDeUso: form.espacioDeUso }),
       ...(form.categoriaId && { categoriaId: form.categoriaId }),
       ...(form.proveedorId && { proveedorId: form.proveedorId }),
       ...(form.itemNumero && { itemNumero: form.itemNumero }),
@@ -586,13 +611,74 @@ export function AddItemModal({ isOpen, onClose, onAdd, inventoryType, categorias
             {inventoryType !== 'nacional' && (
               <div className={inventoryType === 'antigua' ? '' : ''}>
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">Rendimiento</label>
+                {isPorcelanato ? (
+                  <input
+                    value={calculatedRendimiento || '—'}
+                    readOnly
+                    className="w-full px-3 py-2 bg-muted/50 border border-border rounded-lg text-foreground text-sm cursor-not-allowed opacity-70"
+                  />
+                ) : (
+                  <input
+                    value={form.rendimiento}
+                    onChange={(e) => setForm((p) => ({ ...p, rendimiento: e.target.value }))}
+                    placeholder="Ej. 1.44 m2"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                )}
+                {isPorcelanato && (
+                  <p className="text-xs text-muted-foreground mt-1">Auto-calculado desde medida × piezas por caja</p>
+                )}
+              </div>
+            )}
+
+            {inventoryType !== 'nacional' && (
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Aplicación</label>
                 <input
-                  value={form.rendimiento}
-                  onChange={(e) => setForm((p) => ({ ...p, rendimiento: e.target.value }))}
-                  placeholder="Ej. 1.44 m2"
+                  value={form.aplicacion}
+                  onChange={(e) => setForm((p) => ({ ...p, aplicacion: e.target.value }))}
+                  placeholder="Ej. MUROS, PISO"
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>
+            )}
+
+            {inventoryType !== 'nacional' && (
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Espacio de Uso</label>
+                <input
+                  value={form.espacioDeUso}
+                  onChange={(e) => setForm((p) => ({ ...p, espacioDeUso: e.target.value }))}
+                  placeholder="Ej. COCINA - LAVANDERÍA, BAÑO PRINCIPAL"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            )}
+
+            {inventoryType !== 'nacional' && isPorcelanato && (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Medida</label>
+                  <input
+                    value={form.medida}
+                    onChange={(e) => setForm((p) => ({ ...p, medida: e.target.value }))}
+                    placeholder="Ej. 60x30"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Piezas por caja</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={form.piezasPorCaja}
+                    onChange={(e) => setForm((p) => ({ ...p, piezasPorCaja: e.target.value }))}
+                    placeholder="Ej. 8"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </div>
+              </>
             )}
 
             <div className="sm:col-span-2" ref={catRef}>

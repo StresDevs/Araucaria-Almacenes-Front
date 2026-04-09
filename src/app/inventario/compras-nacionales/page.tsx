@@ -51,6 +51,7 @@ export default function ComprasNacionalesPage() {
         const matchesSearch =
           (item.nombre ?? '').toLowerCase().includes(term) ||
           item.codigo.toLowerCase().includes(term) ||
+          item.codigo_inventario.toLowerCase().includes(term) ||
           (item.proveedor_nombre ?? '').toLowerCase().includes(term) ||
           (item.descripcion ?? '').toLowerCase().includes(term)
         if (!matchesSearch) return false
@@ -197,6 +198,7 @@ export default function ComprasNacionalesPage() {
                   <thead>
                     <tr className="bg-muted/50 border-b border-border">
                       <th className="px-3 py-3 text-left font-semibold text-foreground hidden sm:table-cell">n°</th>
+                      <th className="px-3 py-3 text-left font-semibold text-foreground">Cód. Inv.</th>
                       <th className="px-3 py-3 text-left font-semibold text-foreground">Nombre</th>
                       <th className="px-3 py-3 text-left font-semibold text-foreground hidden md:table-cell">Código</th>
                       <th className="px-3 py-3 text-center font-semibold text-foreground">Cant.</th>
@@ -215,6 +217,7 @@ export default function ComprasNacionalesPage() {
                         <React.Fragment key={item.id}>
                           <tr className={`border-b border-border hover:bg-border/10 transition-colors ${isExpanded ? 'bg-border/10' : ''}`}>
                             <td className="px-3 py-3 text-muted-foreground hidden sm:table-cell">{idx + 1}</td>
+                            <td className="px-3 py-3 font-mono text-xs text-accent font-semibold whitespace-nowrap">{item.codigo_inventario}</td>
                             <td className="px-3 py-3 font-medium text-foreground">{item.nombre ?? item.descripcion ?? item.codigo}</td>
                             <td className="px-3 py-3 text-muted-foreground font-mono text-xs hidden md:table-cell">{item.codigo}</td>
                             <td className={`px-3 py-3 text-center font-bold ${item.stock_minimo > 0 && item.stock_total <= item.stock_minimo ? 'text-red-400' : 'text-accent'}`}>
@@ -269,7 +272,7 @@ export default function ComprasNacionalesPage() {
                           </tr>
                           {isExpanded && (
                             <tr className="bg-border/20 border-b border-border">
-                              <td colSpan={9} className="px-4 py-4">
+                              <td colSpan={10} className="px-4 py-4">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                                   <div>
                                     <p className="text-xs text-muted-foreground font-mono mb-1">CÓDIGO</p>
@@ -304,7 +307,7 @@ export default function ComprasNacionalesPage() {
                     })}
                     {itemsFiltrados.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">No se encontraron ítems.</td>
+                        <td colSpan={10} className="px-3 py-8 text-center text-muted-foreground">No se encontraron ítems.</td>
                       </tr>
                     )}
                   </tbody>

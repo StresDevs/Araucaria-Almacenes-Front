@@ -1,0 +1,11 @@
+node_modules
+.next
+.env
+.env.*
+.git
+.gitignore
+context-project
+*.md
+.vscode
+.idea
+.vercel
