@@ -48,7 +48,7 @@ jobs:
             NEXT_PUBLIC_APP_NAME=${{ vars.NEXT_PUBLIC_APP_NAME || 'Araucaria Almacenes' }}
 
       - name: Deploy to VPS
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && secrets.VPS_HOST != ''
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
